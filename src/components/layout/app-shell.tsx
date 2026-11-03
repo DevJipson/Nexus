@@ -18,9 +18,17 @@ const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 export function AppShell({ children }: { children: ReactNode }) {
   const chromeHydrated = useUiStore((state) => state.hydrated);
   const dataHydrated = useWorkspaceStore((state) => state.hydrated);
+  const reduceMotion = useWorkspaceStore((state) => state.preferences.reduceMotion);
   const hydrated = chromeHydrated && dataHydrated;
   const collapsed = useUiStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
+
+  useEffect(() => {
+    document.documentElement.dataset.reduceMotion = reduceMotion ? "true" : "false";
+    return () => {
+      delete document.documentElement.dataset.reduceMotion;
+    };
+  }, [reduceMotion]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
