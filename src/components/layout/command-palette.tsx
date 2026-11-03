@@ -3,11 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
+  CalendarPlusIcon,
   CheckIcon,
   CircleHelpIcon,
+  FolderIcon,
+  FolderPlusIcon,
   KeyboardIcon,
-  MoonIcon,
+  MessageSquarePlusIcon,
   MonitorIcon,
+  MoonIcon,
+  SquareIcon,
+  SquarePlusIcon,
   SunIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -28,9 +34,12 @@ import {
 } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { ALL_NAV_ITEMS } from "@/lib/nav";
-import { seedWorkspaces } from "@/data/seed/shell";
-import { useUiStore } from "@/store/ui-store";
+import { rankTasks } from "@/lib/selectors";
 import { initials } from "@/lib/format";
+import { useComposeStore, type ComposerKind } from "@/store/compose-store";
+import { useTaskPanelStore } from "@/store/task-panel-store";
+import { useUiStore } from "@/store/ui-store";
+import { useWorkspaceStore } from "@/store/workspace-store";
 
 const APPEARANCE = [
   { value: "light", label: "Paper", icon: SunIcon },
@@ -38,14 +47,40 @@ const APPEARANCE = [
   { value: "system", label: "System", icon: MonitorIcon },
 ] as const;
 
+const CREATE_ACTIONS: Array<{
+  kind: ComposerKind;
+  label: string;
+  icon: typeof FolderPlusIcon;
+}> = [
+  { kind: "task", label: "New task", icon: SquarePlusIcon },
+  { kind: "project", label: "New project", icon: FolderPlusIcon },
+  { kind: "event", label: "New calendar event", icon: CalendarPlusIcon },
+  { kind: "conversation", label: "New conversation", icon: MessageSquarePlusIcon },
+];
+
 export function CommandPalette() {
   const router = useRouter();
   const open = useUiStore((state) => state.commandOpen);
   const setOpen = useUiStore((state) => state.setCommandOpen);
   const setHelpOpen = useUiStore((state) => state.setHelpOpen);
-  const activeWorkspaceId = useUiStore((state) => state.activeWorkspaceId);
-  const setActiveWorkspaceId = useUiStore((state) => state.setActiveWorkspaceId);
+  const openComposer = useComposeStore((state) => state.open);
+  const openTask = useTaskPanelStore((state) => state.open);
+
+  const workspacesById = useWorkspaceStore((state) => state.workspaces);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const setActiveWorkspaceId = useWorkspaceStore((state) => state.setActiveWorkspaceId);
+  const projectsById = useWorkspaceStore((state) => state.projects);
+  const tasksById = useWorkspaceStore((state) => state.tasks);
+
   const { theme, setTheme } = useTheme();
+
+  const workspaces = Object.values(workspacesById);
+  const projects = Object.values(projectsById)
+    .filter((project) => project.workspaceId === activeWorkspaceId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const tasks = rankTasks(
+    Object.values(tasksById).filter((task) => task.workspaceId === activeWorkspaceId),
+  );
 
   const run = (action: () => void) => {
     setOpen(false);
@@ -61,19 +96,38 @@ export function CommandPalette() {
       >
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         <DialogDescription className="sr-only">
-          Search pages, switch workspace, change appearance or open help.
+          Search pages, projects and tasks, switch workspace, change appearance or open
+          help.
         </DialogDescription>
 
         <Command className="rounded-none! bg-transparent p-0">
-          <CommandInput placeholder="Search pages, actions and workspaces…" autoFocus />
+          <CommandInput placeholder="Search pages, projects and tasks…" autoFocus />
 
-          <CommandList className="max-h-[min(58vh,420px)] px-1 pt-1 pb-1">
+          <CommandList className="max-h-[min(58vh,440px)] px-1 pt-1 pb-1">
             <CommandEmpty className="py-10 text-center">
               <p className="text-[13px] font-medium">No results</p>
               <p className="mt-1 text-[11.5px] text-muted-foreground">
-                Try a page name, “theme”, or a workspace.
+                Try a page name, a project, a task or “theme”.
               </p>
             </CommandEmpty>
+
+            <CommandGroup heading="Create">
+              {CREATE_ACTIONS.map((action) => {
+                const Icon = action.icon;
+                return (
+                  <CommandItem
+                    key={action.kind}
+                    value={`create ${action.label}`}
+                    onSelect={() => run(() => openComposer(action.kind))}
+                  >
+                    <Icon className="text-muted-foreground" />
+                    <span className="flex-1">{action.label}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+
+            <CommandSeparator />
 
             <CommandGroup heading="Navigate">
               {ALL_NAV_ITEMS.map((item) => {
@@ -94,10 +148,59 @@ export function CommandPalette() {
               })}
             </CommandGroup>
 
+            {projects.length > 0 ? (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Projects">
+                  {projects.map((project) => (
+                    <CommandItem
+                      key={project.id}
+                      value={`project ${project.name} ${project.key} ${project.id}`}
+                      onSelect={() => run(() => router.push(`/projects/${project.id}`))}
+                    >
+                      <FolderIcon className="text-muted-foreground" />
+                      <span className="flex-1 truncate">{project.name}</span>
+                      <span className="font-mono text-[10px] tracking-[0.1em] text-muted-foreground uppercase">
+                        {project.key}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            ) : null}
+
+            {tasks.length > 0 ? (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Open tasks">
+                  {tasks.map((task) => {
+                    const project = projectsById[task.projectId];
+                    return (
+                      <CommandItem
+                        key={task.id}
+                        value={`task ${task.title} ${project?.name ?? ""} ${task.id}`}
+                        onSelect={() =>
+                          run(() => {
+                            openTask(task.id);
+                          })
+                        }
+                      >
+                        <SquareIcon className="text-muted-foreground" />
+                        <span className="flex-1 truncate">{task.title}</span>
+                        <span className="truncate font-mono text-[10px] tracking-[0.1em] text-muted-foreground uppercase">
+                          {project?.key ?? "Task"}
+                        </span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </>
+            ) : null}
+
             <CommandSeparator />
 
             <CommandGroup heading="Switch workspace">
-              {seedWorkspaces.map((workspace) => (
+              {workspaces.map((workspace) => (
                 <CommandItem
                   key={workspace.id}
                   value={`workspace ${workspace.name} ${workspace.plan}`}

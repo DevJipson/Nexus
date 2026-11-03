@@ -15,8 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { avatarTint, initials } from "@/lib/format";
-import { seedWorkspaces } from "@/data/seed/shell";
-import { useUiStore } from "@/store/ui-store";
+import { useWorkspaceStore } from "@/store/workspace-store";
 
 export function WorkspaceSwitcher({
   collapsed = false,
@@ -26,16 +25,18 @@ export function WorkspaceSwitcher({
   menuSide?: "right" | "left" | "top" | "bottom";
 }) {
   const router = useRouter();
-  const activeWorkspaceId = useUiStore((state) => state.activeWorkspaceId);
-  const setActiveWorkspaceId = useUiStore((state) => state.setActiveWorkspaceId);
+  const workspacesById = useWorkspaceStore((state) => state.workspaces);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const setActiveWorkspaceId = useWorkspaceStore((state) => state.setActiveWorkspaceId);
+  const workspaces = Object.values(workspacesById);
 
-  const active =
-    seedWorkspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
-    seedWorkspaces[0];
+  const active = workspacesById[activeWorkspaceId] ?? workspaces[0];
+
+  if (!active) return null;
 
   const switchWorkspace = (id: string) => {
     if (id === activeWorkspaceId) return;
-    const next = seedWorkspaces.find((workspace) => workspace.id === id);
+    const next = workspacesById[id];
     if (!next) return;
 
     setActiveWorkspaceId(id);
@@ -96,7 +97,7 @@ export function WorkspaceSwitcher({
       )}
       <DropdownMenuContent align="start" side={menuSide} sideOffset={12} className="w-64">
         <DropdownMenuLabel className="eyebrow px-2.5 py-2">Workspaces</DropdownMenuLabel>
-        {seedWorkspaces.map((workspace) => {
+        {workspaces.map((workspace) => {
           const isActive = workspace.id === activeWorkspaceId;
           return (
             <DropdownMenuItem

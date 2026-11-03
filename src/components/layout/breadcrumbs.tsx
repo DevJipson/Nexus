@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRightIcon } from "lucide-react";
-import { useUiStore } from "@/store/ui-store";
-import { seedWorkspaces } from "@/data/seed/shell";
+import { useWorkspaceStore } from "@/store/workspace-store";
 import { cn } from "@/lib/utils";
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -32,13 +31,14 @@ function humanizeSegment(segment: string): string {
 
 export function Breadcrumbs({ className }: { className?: string }) {
   const pathname = usePathname();
-  const activeWorkspaceId = useUiStore((state) => state.activeWorkspaceId);
-  const workspace =
-    seedWorkspaces.find((item) => item.id === activeWorkspaceId) ?? seedWorkspaces[0];
+  const workspacesById = useWorkspaceStore((state) => state.workspaces);
+  const projectsById = useWorkspaceStore((state) => state.projects);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
+  const workspace = workspacesById[activeWorkspaceId];
   const segments = pathname.split("/").filter(Boolean);
   const crumbs = segments.map((segment, index) => ({
-    label: humanizeSegment(segment),
+    label: projectsById[segment]?.name ?? humanizeSegment(segment),
     href: `/${segments.slice(0, index + 1).join("/")}`,
     current: index === segments.length - 1,
   }));
@@ -51,7 +51,7 @@ export function Breadcrumbs({ className }: { className?: string }) {
             href="/dashboard"
             className="truncate text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
-            {workspace.name}
+            {workspace?.name ?? "NEXUS"}
           </Link>
           <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/45" aria-hidden="true" />
         </li>

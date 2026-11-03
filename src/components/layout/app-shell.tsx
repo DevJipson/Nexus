@@ -2,18 +2,23 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useUiStore } from "@/store/ui-store";
+import { useWorkspaceStore } from "@/store/workspace-store";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { HelpSheet } from "@/components/layout/help-sheet";
 import { ShellSkeleton } from "@/components/layout/shell-skeleton";
+import { ComposeDialogs } from "@/components/forms/compose-dialogs";
+import { TaskDetailSheet } from "@/features/tasks/task-detail-sheet";
 import { cn } from "@/lib/utils";
 
 const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const hydrated = useUiStore((state) => state.hydrated);
+  const chromeHydrated = useUiStore((state) => state.hydrated);
+  const dataHydrated = useWorkspaceStore((state) => state.hydrated);
+  const hydrated = chromeHydrated && dataHydrated;
   const collapsed = useUiStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
 
@@ -80,6 +85,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <MobileNav />
       <CommandPalette />
       <HelpSheet />
+      <ComposeDialogs />
+      <TaskDetailSheet />
     </div>
   );
 }

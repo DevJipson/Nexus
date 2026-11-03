@@ -17,13 +17,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EntityAvatar } from "@/components/shared/entity-avatar";
-import { CURRENT_USER_ID, seedMembers } from "@/data/seed/shell";
 import { useUiStore } from "@/store/ui-store";
+import { useWorkspaceStore } from "@/store/workspace-store";
 import { cn } from "@/lib/utils";
 
 export function UserMenu({ compact = false }: { compact?: boolean }) {
   const setHelpOpen = useUiStore((state) => state.setHelpOpen);
-  const user = seedMembers.find((member) => member.id === CURRENT_USER_ID) ?? seedMembers[0];
+  const user = useWorkspaceStore((state) => state.members[state.currentUserId]);
+
+  if (!user) return null;
 
   return (
     <DropdownMenu>

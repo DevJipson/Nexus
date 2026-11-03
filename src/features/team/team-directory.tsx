@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   ClockIcon,
@@ -25,10 +25,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { seedMembers, seedWorkspaces } from "@/data/seed/shell";
 import { formatFullDate, PRESENCE_LABEL } from "@/lib/format";
+import { workspaceMembers, workspaceTasks } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
-import { useUiStore } from "@/store/ui-store";
+import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Presence, WorkspaceRole } from "@/types/domain";
 
 const ROLE_LABEL: Record<WorkspaceRole, string> = {
@@ -47,33 +47,30 @@ const PRESENCE_DOT: Record<Presence, string> = {
 type RoleFilter = WorkspaceRole | "all";
 
 export function TeamDirectory() {
-  const activeWorkspaceId = useUiStore((state) => state.activeWorkspaceId);
-  const workspace =
-    seedWorkspaces.find((item) => item.id === activeWorkspaceId) ?? seedWorkspaces[0];
+  const state = useWorkspaceStore();
+  const workspace = state.workspaces[state.activeWorkspaceId];
 
   const [query, setQuery] = useState("");
   const [role, setRole] = useState<RoleFilter>("all");
 
-  const members = useMemo(
-    () =>
-      seedMembers.filter((member) =>
-        workspace.memberIds.includes(member.id),
-      ),
-    [workspace.memberIds],
-  );
+  const members = workspace ? workspaceMembers(state, workspace.id) : [];
+  const openByMember = new Map<string, number>();
+  if (workspace) {
+    for (const task of workspaceTasks(state, workspace.id)) {
+      if (!task.assigneeId || task.status === "done") continue;
+      openByMember.set(task.assigneeId, (openByMember.get(task.assigneeId) ?? 0) + 1);
+    }
+  }
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return members.filter((member) => {
-      const matchesRole = role === "all" || member.role === role;
-      if (!matchesRole) return false;
-      if (!needle) return true;
-      return [member.name, member.title, member.email, member.location]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle);
-    });
-  }, [members, query, role]);
+  const needle = query.trim().toLowerCase();
+  const filtered = members.filter((member) => {
+    if (role !== "all" && member.role !== role) return false;
+    if (!needle) return true;
+    return [member.name, member.title, member.email, member.location]
+      .join(" ")
+      .toLowerCase()
+      .includes(needle);
+  });
 
   const online = members.filter((member) => member.presence === "online").length;
 
@@ -190,6 +187,12 @@ export function TeamDirectory() {
                           {PRESENCE_LABEL[member.presence]}
                         </span>
                       </div>
+                      {openByMember.get(member.id) ? (
+                        <p className="mt-1.5 text-[10.5px] text-muted-foreground">
+                          {openByMember.get(member.id)} open{" "}
+                          {openByMember.get(member.id) === 1 ? "task" : "tasks"}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
