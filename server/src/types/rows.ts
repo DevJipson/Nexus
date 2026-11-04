@@ -106,4 +106,121 @@ export interface MemberWithRoleRow {
   joined_at: Date;
 }
 
+/* ------------------------------ Phase 3 rows ----------------------------- */
+
+import type { Priority, ProjectStatus, TaskStatus } from "./domain";
+
+export interface ProjectRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  key: string;
+  description: string;
+  status: ProjectStatus;
+  priority: Priority;
+  color_hue: number;
+  start_date: Date;
+  due_date: Date;
+  created_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+  deleted_at: Date | null;
+}
+
+export interface TaskRow {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: Priority;
+  assignee_id: string | null;
+  reporter_id: string;
+  due_date: Date | null;
+  sort_order: number;
+  completed_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+  deleted_at: Date | null;
+}
+
+export interface SubtaskRow {
+  id: string;
+  task_id: string;
+  title: string;
+  done: boolean;
+  sort_order: number;
+  created_at: Date;
+}
+
+export interface CommentRow {
+  id: string;
+  task_id: string;
+  author_id: string;
+  body: string;
+  created_at: Date;
+  updated_at: Date;
+  deleted_at: Date | null;
+}
+
+export interface AttachmentRow {
+  id: string;
+  task_id: string;
+  uploaded_by: string;
+  name: string;
+  size_bytes: string;
+  mime_type: string;
+  storage_key: string | null;
+  uploaded_at: Date;
+}
+
+export interface CalendarEventRow {
+  id: string;
+  workspace_id: string;
+  project_id: string | null;
+  title: string;
+  description: string;
+  type: "meeting" | "deadline" | "milestone" | "focus";
+  start_at: Date;
+  end_at: Date;
+  all_day: boolean;
+  location: string;
+  created_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ActivityRow {
+  id: string;
+  workspace_id: string;
+  actor_id: string;
+  kind: string;
+  entity_type: "project" | "task" | "event" | "member" | "comment";
+  entity_id: string;
+  entity_label: string;
+  project_id: string | null;
+  created_at: Date;
+}
+
+export interface LabelRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  hue: number;
+  created_at: Date;
+}
+
+export interface NotificationRow {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  category: "task" | "project" | "team" | "mention" | "system";
+  title: string;
+  body: string;
+  href: string | null;
+  read_at: Date | null;
+  created_at: Date;
+}
+
 export type { Presence };

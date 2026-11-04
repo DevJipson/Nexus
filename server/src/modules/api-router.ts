@@ -11,6 +11,10 @@ import { createAuthRoutes } from "./auth/auth.routes";
 import { createUserRoutes } from "./users/users.routes";
 import { createWorkspaceRoutes } from "./workspaces/workspaces.routes";
 import { createInvitationRoutes } from "./invitations/invitations.routes";
+import { createProjectRoutes } from "./projects/projects.routes";
+import { createTaskRoutes } from "./tasks/tasks.routes";
+import { createEventRoutes } from "./events/events.routes";
+import { createFeedRoutes } from "./notifications/feeds.routes";
 
 /**
  * Builds the /api/v1 router. Service wiring lives in the registry; middleware
@@ -35,6 +39,10 @@ export function createApiRouter(deps: { pool: Pool; env: Env; logger: Logger; em
   router.use(createUserRoutes({ ...services, requireAuth }));
   router.use(createWorkspaceRoutes({ ...services, requireAuth }));
   router.use(createInvitationRoutes({ ...services, requireAuth }));
+  router.use(createProjectRoutes({ ...services, requireAuth }));
+  router.use(createTaskRoutes({ ...services, requireAuth }));
+  router.use(createEventRoutes({ ...services, requireAuth }));
+  router.use(createFeedRoutes({ ...services, requireAuth }));
 
   return router;
 }

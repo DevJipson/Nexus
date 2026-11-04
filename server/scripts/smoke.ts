@@ -61,12 +61,64 @@ async function main(): Promise<void> {
   assert(members.status === 200, "GET members → 200");
   assert(memberBody.data.members.length === 8, "Nexus Studio has 8 members");
 
-  const denied = await call("PATCH", `/api/v1/workspaces/${studio?.id}`, { name: "Hacked" }, jar);
-  // Maya IS the owner, so this is allowed; verify a rename works and revert.
-  assert(denied.status === 200, "owner can rename workspace");
+  const renamed = await call("PATCH", `/api/v1/workspaces/${studio?.id}`, { name: "Nexus Studio" }, jar);
+  assert(renamed.status === 200, "owner can rename workspace");
 
   const prefs = await call("PATCH", "/api/v1/me/preferences", { density: "compact" }, jar);
   assert(prefs.status === 200, "PATCH /me/preferences → 200");
+
+  // Core work: create a project, a task, move it, comment, then delete.
+  const meAfter = await call("GET", "/api/v1/me", undefined, jar);
+  const mayaId = (meAfter.body as { data: { user: { id: string } } }).data.user.id;
+  const created = await call(
+    "POST",
+    `/api/v1/workspaces/${studio?.id}/projects`,
+    {
+      name: `Smoke project ${Date.now()}`,
+      description: "Created by the smoke test",
+      status: "active",
+      priority: "high",
+      dueDate: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      memberIds: [mayaId],
+    },
+    jar,
+  );
+  const createdBody = created.body as { data?: { project?: { id: string; key: string } } };
+  assert(created.status === 201, "POST project → 201");
+  const projectId = createdBody.data?.project?.id as string;
+  assert(typeof createdBody.data?.project?.key === "string", `project key derived (${createdBody.data?.project?.key})`);
+
+  const task = await call(
+    "POST",
+    `/api/v1/workspaces/${studio?.id}/tasks`,
+    { projectId, title: "Smoke task", status: "todo", priority: "urgent", labels: ["frontend"] },
+    jar,
+  );
+  const taskBody = task.body as { data?: { task?: { id: string; order: number } } };
+  assert(
+    task.status === 201 && typeof taskBody.data?.task?.order === "number",
+    `POST task → 201 (column order ${taskBody.data?.task?.order})`,
+  );
+  const taskId = taskBody.data?.task?.id as string;
+
+  const moved = await call("PATCH", `/api/v1/tasks/${taskId}/position`, { status: "in_progress", index: 0 }, jar);
+  const movedBody = moved.body as { data?: { column?: Array<{ id: string; order: number }> } };
+  assert(
+    moved.status === 200 && movedBody.data?.column?.[0]?.id === taskId,
+    "PATCH task position → renumbered column",
+  );
+
+  const comment = await call("POST", `/api/v1/tasks/${taskId}/comments`, { body: "Smoke comment." }, jar);
+  assert(comment.status === 201, "POST task comment → 201");
+
+  const activity = await call("GET", `/api/v1/workspaces/${studio?.id}/activity?limit=5`, undefined, jar);
+  const activityEntries = (activity.body as { data: { activity: Array<{ kind: string }> } }).data.activity;
+  assert(activityEntries.some((entry) => entry.kind === "task.created"), "activity feed records task.created");
+
+  const delProject = await call("DELETE", `/api/v1/projects/${projectId}`, undefined, jar);
+  assert(delProject.status === 200, "DELETE project → 200 (cascade)");
+  const taskGone = await call("GET", `/api/v1/tasks/${taskId}`, undefined, jar);
+  assert(taskGone.status === 404, "cascaded task is gone (404)");
 
   const logout = await call("POST", "/api/v1/auth/logout", undefined, jar);
   assert(logout.status === 200, "logout → 200");

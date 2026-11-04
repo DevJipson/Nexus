@@ -5,11 +5,11 @@ package** with its own toolchain; the Next.js frontend at the repository root is
 never built, linted or type-checked by this package (and vice versa — the root
 `tsconfig.json`/ESLint config exclude `server/`).
 
-**Current status — Phase 2 (authentication & authorization):** Phase 1
-foundation + database, plus Argon2id accounts, server-side sessions with secure
-cookies, email verification, password reset, rate limiting, CSRF protection,
-RBAC middleware, and workspace / member / invitation endpoints. Feature modules
-(projects, tasks, messaging, …) arrive in later phases.
+**Current status — Phase 3 (core project management):** Phase 1 foundation +
+database, Phase 2 authentication & authorization, plus projects, tasks (with
+kanban position renumbering), labels, subtasks, comments, attachment metadata,
+calendar events, activity logging and notifications. Real-time collaboration,
+dashboard/report aggregation and file bytes arrive in later phases.
 
 ## Requirements
 
@@ -164,6 +164,48 @@ GET    /api/v1/workspaces/:id/invitations POST   /api/v1/workspaces/:id/invitati
 DELETE /api/v1/workspaces/:id/invitations/:invitationId
 GET    /api/v1/invitations/:token         POST   /api/v1/invitations/accept
 ```
+
+### Endpoints (Phase 3)
+
+```
+GET    /api/v1/workspaces/:id/projects        POST   /api/v1/workspaces/:id/projects
+GET    /api/v1/workspaces/:id/labels
+GET    /api/v1/projects/:projectId            PATCH  /api/v1/projects/:projectId
+DELETE /api/v1/projects/:projectId
+GET    /api/v1/projects/:projectId/tasks      GET    /api/v1/projects/:projectId/activity
+
+GET    /api/v1/workspaces/:id/tasks           POST   /api/v1/workspaces/:id/tasks
+GET    /api/v1/tasks/:taskId                  PATCH  /api/v1/tasks/:taskId
+DELETE /api/v1/tasks/:taskId                  PATCH  /api/v1/tasks/:taskId/position
+POST   /api/v1/tasks/:taskId/subtasks         PATCH  /api/v1/tasks/:taskId/subtasks/:subtaskId
+DELETE /api/v1/tasks/:taskId/subtasks/:subtaskId
+GET    /api/v1/tasks/:taskId/comments         POST   /api/v1/tasks/:taskId/comments
+POST   /api/v1/tasks/:taskId/attachments      DELETE /api/v1/tasks/:taskId/attachments/:attachmentId
+
+GET    /api/v1/workspaces/:id/events          POST   /api/v1/workspaces/:id/events
+PATCH  /api/v1/events/:eventId                DELETE /api/v1/events/:eventId
+
+GET    /api/v1/workspaces/:id/activity
+GET    /api/v1/workspaces/:id/notifications   POST   /api/v1/workspaces/:id/notifications/read-all
+POST   /api/v1/notifications/:notificationId/read
+```
+
+### Domain semantics (parity with the frontend store)
+
+- **Project keys** are derived from the name (first three letters, e.g. `ATL`)
+  and made unique per workspace with a numeric suffix (`ATL2`).
+- **Task ordering** mirrors `moveTask`: `PATCH /tasks/:id/position` renumbers the
+  whole target column `1..n` in one transaction; new tasks append
+  (`max(order)+1`). The API field is `order`; the column is `sort_order`.
+- **Completion** stamps `completedAt` on entering `done` and clears it on leave.
+- **Activity** rows are written inside the same transaction as every mutation.
+- **Assignment** creates a per-recipient notification (unassigning/reassigning
+  re-notifies the new assignee).
+- **Cascade:** deleting a project deletes its tasks and detaches its
+  events/conversations/activities (`project_id → NULL`).
+- **Validation** mirrors the frontend dialogs (title ≥ 2, description limits,
+  labels must exist in the workspace catalog, members must belong to the
+  workspace).
 
 ## Email transport
 

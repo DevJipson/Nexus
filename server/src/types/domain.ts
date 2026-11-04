@@ -5,6 +5,20 @@
 
 export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
 export type Presence = "online" | "away" | "offline";
+export type Priority = "low" | "medium" | "high" | "urgent";
+export type ProjectStatus = "planning" | "active" | "on_hold" | "completed" | "archived";
+export type TaskStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done";
+export type TaskLabel =
+  | "design"
+  | "frontend"
+  | "backend"
+  | "research"
+  | "bug"
+  | "infra"
+  | "content"
+  | "qa"
+  | "growth"
+  | "ops";
 
 export const WORKSPACE_ROLES: readonly WorkspaceRole[] = ["owner", "admin", "member", "viewer"];
 
