@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, Trash2Icon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,10 +13,12 @@ export function TaskSubtasks({
   task,
   onToggle,
   onAdd,
+  onDelete,
 }: {
   task: Task;
   onToggle: (subtaskId: string) => void;
   onAdd: (title: string) => void;
+  onDelete?: (subtaskId: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const total = task.subtasks.length;
@@ -60,6 +62,20 @@ export function TaskSubtasks({
               <span className={cn("leading-snug", subtask.done && "text-muted-foreground line-through")}>
                 {subtask.title}
               </span>
+              {onDelete && (
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(subtask.id);
+                  }}
+                  className="text-muted-foreground hover:text-danger"
+                  aria-label={`Delete subtask "${subtask.title}"`}
+                >
+                  <Trash2Icon className="size-3" />
+                </Button>
+              )}
             </label>
           </li>
         ))}

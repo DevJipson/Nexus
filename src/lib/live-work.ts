@@ -66,6 +66,23 @@ function toAttachment(dto: any): Attachment {
   };
 }
 
+function toEvent(dto: any): any {
+  return {
+    id: dto.id,
+    workspaceId: dto.workspaceId,
+    title: dto.title,
+    description: dto.description,
+    type: dto.type,
+    projectId: dto.projectId,
+    start: dto.start,
+    end: dto.end,
+    allDay: dto.allDay,
+    attendeeIds: dto.attendeeIds,
+    location: dto.location,
+    createdAt: dto.createdAt,
+  };
+}
+
 function toTask(dto: any): Task {
   return {
     id: dto.id,
@@ -131,7 +148,63 @@ export async function liveCreateEvent(workspaceId: string, input: LiveCreateEven
     `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/events`,
     { method: "POST", json: input },
   );
-  return event;
+  return toEvent(event);
+}
+
+export interface LiveEventFilters {
+  from?: string;
+  to?: string;
+}
+
+export async function liveListEvents(
+  workspaceId: string,
+  filters: LiveEventFilters = {},
+): Promise<any[]> {
+  const params = new URLSearchParams();
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const { events } = await api<{ events: any[] }>(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/events${query}`,
+  );
+  return events.map(toEvent);
+}
+
+export interface LiveUpdateEventPatch {
+  title?: string;
+  description?: string;
+  type?: string;
+  projectId?: string | null;
+  start?: string;
+  end?: string;
+  allDay?: boolean;
+  attendeeIds?: string[];
+  location?: string;
+}
+
+export async function liveUpdateEvent(
+  eventId: string,
+  patch: LiveUpdateEventPatch,
+): Promise<any> {
+  const body: Record<string, unknown> = {};
+  if (patch.title !== undefined) body.title = patch.title;
+  if (patch.description !== undefined) body.description = patch.description;
+  if (patch.type !== undefined) body.type = patch.type;
+  if (patch.projectId !== undefined) body.projectId = patch.projectId;
+  if (patch.start !== undefined) body.start = patch.start;
+  if (patch.end !== undefined) body.end = patch.end;
+  if (patch.allDay !== undefined) body.allDay = patch.allDay;
+  if (patch.attendeeIds !== undefined) body.attendeeIds = patch.attendeeIds;
+  if (patch.location !== undefined) body.location = patch.location;
+  const { event } = await api<{ event: any }>(
+    `/api/v1/events/${encodeURIComponent(eventId)}`,
+    { method: "PATCH", json: body },
+  );
+  return toEvent(event);
+}
+
+export async function liveDeleteEvent(eventId: string): Promise<void> {
+  await api(`/api/v1/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
 }
 
 /* ---------------------------------------------------------------- projects */

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import {
@@ -42,12 +43,9 @@ import {
   prioritySeries,
   projectStats,
   statusSeries,
-  workspaceMembers,
-  workspaceOverview,
-  workspaceProjects,
-  workspaceTasks,
   workloadSeries,
 } from "@/lib/selectors";
+import { useDataSource, useDataSourceSelectors } from "@/lib/use-data-source";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspace-store";
 
@@ -79,13 +77,23 @@ const STATUS_FILL: Record<string, string> = {
 
 export function ReportsScreen() {
   const state = useWorkspaceStore();
+  const ds = useDataSource();
+  const { projectStats: computeProjectStats, taskStats: computeTaskStats } = useDataSourceSelectors();
   const now = new Date();
-  const workspace = state.workspaces[state.activeWorkspaceId];
-  const overview = workspaceOverview(state, state.activeWorkspaceId, now);
-  const members = workspaceMembers(state, state.activeWorkspaceId);
-  const tasks = workspaceTasks(state, state.activeWorkspaceId);
-  const projects = workspaceProjects(state, state.activeWorkspaceId);
+  const workspaceId = ds.activeWorkspaceId;
+  const workspace = state.workspaces[workspaceId ?? ""];
 
+  const tasks = ds.workspaceTasks(workspaceId ?? "");
+  const projects = ds.workspaceProjects(workspaceId ?? "");
+  const members = ds.workspaceMembers(workspaceId ?? "");
+
+  // Bootstrap data from the backend when in live mode.
+  useEffect(() => {
+    if (ds.mode !== "live" || !workspaceId) return;
+    void ds.bootstrap(workspaceId);
+  }, [ds.mode, workspaceId, ds.bootstrap]);
+
+  const stats = computeTaskStats(tasks, now);
   const series = completionSeries(tasks, 8, now);
   const status = statusSeries(tasks);
   const priority = prioritySeries(tasks);
@@ -95,7 +103,7 @@ export function ReportsScreen() {
   const completedThisWeek = series[series.length - 1]?.completed ?? 0;
 
   const projectRows = projects
-    .map((project) => ({ project, stats: projectStats(state, project.id, now) }))
+    .map((project) => ({ project, stats: computeProjectStats(project, now) }))
     .sort((a, b) => a.project.dueDate.localeCompare(b.project.dueDate));
 
   const TrendIcon = trend >= 0 ? TrendingUpIcon : TrendingDownIcon;
@@ -116,8 +124,8 @@ export function ReportsScreen() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Completion rate"
-          value={`${overview.stats.completionRate}%`}
-          detail={`${overview.stats.done} of ${overview.stats.total} tasks done`}
+          value={`${stats.completionRate}%`}
+          detail={`${stats.done} of ${stats.total} tasks done`}
           icon={GaugeIcon}
           tone="accent"
         />
@@ -145,10 +153,10 @@ export function ReportsScreen() {
         />
         <StatTile
           label="Overdue now"
-          value={String(overview.stats.overdue)}
-          detail={overview.stats.overdue > 0 ? "Needs triage" : "Nothing has slipped"}
+          value={String(stats.overdue)}
+          detail={stats.overdue > 0 ? "Needs triage" : "Nothing has slipped"}
           icon={FlameIcon}
-          tone={overview.stats.overdue > 0 ? "negative" : "positive"}
+          tone={stats.overdue > 0 ? "negative" : "positive"}
         />
       </div>
 
@@ -245,7 +253,14 @@ export function ReportsScreen() {
             <BarChart data={priority} margin={{ top: 4, right: 4, bottom: 0, left: -22 }} barCategoryGap="30%">
               <CartesianGrid vertical={false} strokeDasharray="2 4" stroke="var(--border)" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={10} tick={{ fontSize: 10 }} />
-              <YAxis tickLine={false} axisLine={false} allowDecimals={false} tick={{ fontSize: 10 }} width={34} />
+              <YAxis
+                type="category"
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                allowDecimals={false}
+                tick={{ fontSize: 10 }} width={34}
+              />
               <ChartTooltip cursor={{ fill: "var(--muted)", opacity: 0.5 }} content={<ChartTooltipContent hideLabel />} />
               <Bar dataKey="count" fill="var(--color-count)" radius={[4, 4, 2, 2]} maxBarSize={44} />
             </BarChart>
@@ -318,7 +333,7 @@ export function ReportsScreen() {
         ) : (
           <ul className="divide-y divide-border/60">
             {projectRows.map(({ project, stats }) => {
-              const meta = PROJECT_STATUS_META[project.status];
+              const meta = PROJECT_STATUS_META[project.status as keyof typeof PROJECT_STATUS_META];
               const done = stats.total > 0 && stats.done === stats.total;
               return (
                 <li key={project.id}>

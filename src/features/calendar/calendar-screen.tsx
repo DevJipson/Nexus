@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   addDays,
   addMonths,
@@ -25,6 +25,7 @@ import {
   ChevronRightIcon,
   ClockIcon,
   MapPinIcon,
+  PencilIcon,
   PlusIcon,
   Trash2Icon,
   UsersIcon,
@@ -36,24 +37,38 @@ import { EntityAvatar } from "@/components/shared/entity-avatar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { CreateEventDialog } from "@/components/forms/create-event-dialog";
 import { EVENT_TYPE_META, toneVar } from "@/lib/domain-meta";
 import { formatTime, pluralize } from "@/lib/format";
-import { eventsOnDay, workspaceEvents } from "@/lib/selectors";
+import { eventsOnDay } from "@/lib/selectors";
+import { useDataSource } from "@/lib/use-data-source";
 import { cn } from "@/lib/utils";
 import { useComposeStore } from "@/store/compose-store";
 import { useWorkspaceStore } from "@/store/workspace-store";
-import type { CalendarEvent, CalendarView } from "@/types/domain";
+import type { CalendarEvent, CalendarEventType, CalendarView } from "@/types/domain";
 
 export function CalendarScreen() {
   const state = useWorkspaceStore();
+  const ds = useDataSource();
   const openComposer = useComposeStore((store) => store.open);
 
   const [view, setView] = useState<CalendarView>("month");
   const [anchor, setAnchor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
-  const events = workspaceEvents(state, state.activeWorkspaceId);
+  const workspaceId = ds.activeWorkspaceId;
+  const allEvents = Object.values(ds.events).filter(
+    (event) => event.workspaceId === workspaceId,
+  );
+  const events = allEvents.sort((a, b) => a.start.localeCompare(b.start));
   const weekOpts = { weekStartsOn: state.preferences.startOfWeek } as const;
+
+  // Bootstrap events from the backend when in live mode.
+  useEffect(() => {
+    if (ds.mode !== "live" || !workspaceId) return;
+    void ds.listEvents(workspaceId);
+  }, [ds.mode, workspaceId, ds.listEvents, ds]);
 
   const monthDays = eachDayOfInterval({
     start: startOfWeek(startOfMonth(anchor), weekOpts),
@@ -101,7 +116,8 @@ export function CalendarScreen() {
         : format(anchor, "EEEE, d MMMM yyyy");
 
   return (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6">
       <PageHeader
         eyebrow="Workspace"
         title="Time, made legible."
@@ -213,7 +229,12 @@ export function CalendarScreen() {
               ) : (
                 <ul className="space-y-2">
                   {dayEvents.map((event) => (
-                    <AgendaEvent key={event.id} event={event} />
+                    <AgendaEvent
+                      key={event.id}
+                      event={event}
+                      onEdit={(ev) => setEditingEvent(ev)}
+                      onError={(msg) => console.error(msg)}
+                    />
                   ))}
                 </ul>
               )}
@@ -232,7 +253,7 @@ export function CalendarScreen() {
               ) : (
                 upcoming.slice(0, 5).map((event) => {
                   const start = parseISO(event.start);
-                  const meta = EVENT_TYPE_META[event.type];
+                  const meta = EVENT_TYPE_META[event.type as CalendarEventType];
                   return (
                     <li key={event.id}>
                       <button
@@ -266,6 +287,14 @@ export function CalendarScreen() {
         </aside>
       </div>
     </div>
+    <CreateEventDialog
+      open={Boolean(editingEvent)}
+      onOpenChange={(open) => {
+        if (!open) setEditingEvent(null);
+      }}
+      event={editingEvent ?? undefined}
+    />
+    </>
   );
 }
 
@@ -341,7 +370,7 @@ function MonthGrid({
 
               <ul className="mt-1 space-y-0.5">
                 {visible.map((event) => {
-                  const meta = EVENT_TYPE_META[event.type];
+                  const meta = EVENT_TYPE_META[event.type as CalendarEventType];
                   return (
                     <li key={event.id}>
                       <button
@@ -432,7 +461,7 @@ function WeekGrid({
                 </li>
               ) : (
                 dayEvents.map((event) => {
-                  const meta = EVENT_TYPE_META[event.type];
+                  const meta = EVENT_TYPE_META[event.type as CalendarEventType];
                   return (
                     <li key={event.id}>
                       <button
@@ -525,7 +554,7 @@ function DayEventRow({
   event: CalendarEvent;
   state: ReturnType<typeof useWorkspaceStore.getState>;
 }) {
-  const meta = EVENT_TYPE_META[event.type];
+  const meta = EVENT_TYPE_META[event.type as CalendarEventType];
   const attendees = event.attendeeIds
     .map((id) => state.members[id])
     .filter((member): member is NonNullable<typeof member> => Boolean(member));
@@ -599,10 +628,31 @@ function DayEventRow({
   );
 }
 
-function AgendaEvent({ event }: { event: CalendarEvent }) {
-  const state = useWorkspaceStore();
+function AgendaEvent({
+  event,
+  onEdit,
+  onError,
+}: {
+  event: CalendarEvent;
+  onEdit: (event: CalendarEvent) => void;
+  onError: (message: string) => void;
+}) {
+  const ds = useDataSource();
   const [confirming, setConfirming] = useState(false);
-  const meta = EVENT_TYPE_META[event.type];
+  const [deleting, setDeleting] = useState(false);
+  const meta = EVENT_TYPE_META[event.type as CalendarEventType];
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await ds.deleteEvent(event.id);
+      setConfirming(false);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Failed to delete event.");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <li className="rounded-lg border border-border/70 bg-surface">
@@ -665,21 +715,35 @@ function AgendaEvent({ event }: { event: CalendarEvent }) {
                     variant="ghost"
                     size="xs"
                     className="text-danger hover:text-danger"
-                    onClick={() => state.deleteEvent(event.id)}
+                    onClick={handleDelete}
+                    disabled={deleting}
                   >
-                    Delete
+                    {deleting ? "Deleting…" : "Delete"}
                   </Button>
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => setConfirming(true)}
-                className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-danger"
-              >
-                <Trash2Icon className="size-3" aria-hidden="true" />
-                Delete event
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirming(false);
+                    onEdit(event);
+                  }}
+                  className="w-full inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-muted"
+                >
+                  <PencilIcon className="size-3" aria-hidden="true" />
+                  Edit event
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(true)}
+                  className="w-full inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-danger"
+                >
+                  <Trash2Icon className="size-3" aria-hidden="true" />
+                  Delete event
+                </button>
+              </>
             )}
           </div>
         </PopoverContent>

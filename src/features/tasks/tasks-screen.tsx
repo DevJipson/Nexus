@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Columns3Icon,
   ListIcon,
@@ -70,6 +70,12 @@ export function TasksScreen() {
   const members = ds.workspaceMembers(workspaceId ?? "");
   const projects = ds.workspaceProjects(workspaceId ?? "");
   const tasks = ds.workspaceTasks(workspaceId ?? "");
+
+  // Bootstrap data from the backend when in live mode.
+  useEffect(() => {
+    if (ds.mode !== "live" || !workspaceId) return;
+    void ds.bootstrap(workspaceId);
+  }, [ds.mode, workspaceId, ds.bootstrap]);
 
   const mineOnly = filters.assigneeId === state.currentUserId;
   const filtered = filterTasks(tasks, filters);

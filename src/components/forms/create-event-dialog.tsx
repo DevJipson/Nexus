@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -29,7 +29,7 @@ import { FormField } from "@/components/forms/form-field";
 import { MemberPicker } from "@/components/forms/member-picker";
 import { EVENT_TYPE_META } from "@/lib/domain-meta";
 import { useDataSource } from "@/lib/use-data-source";
-import type { CalendarEventType } from "@/types/domain";
+import type { CalendarEvent, CalendarEventType } from "@/types/domain";
 
 const EVENT_TYPES: CalendarEventType[] = ["meeting", "deadline", "milestone", "focus"];
 
@@ -57,27 +57,51 @@ export function CreateEventDialog({
   open,
   onOpenChange,
   defaultDate,
+  event,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate?: Date;
+  event?: CalendarEvent;
 }) {
   const ds = useDataSource();
   const members = ds.workspaceMembers(ds.activeWorkspaceId ?? "");
   const projects = ds.workspaceProjects(ds.activeWorkspaceId ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const buildDefaults = (): Values => ({
-    title: "",
-    description: "",
-    type: "meeting",
-    projectId: "none",
-    date: format(defaultDate ?? new Date(), "yyyy-MM-dd"),
-    allDay: false,
-    startTime: "10:00",
-    endTime: "11:00",
-    location: "",
-    attendeeIds: [ds.currentUserId ?? ""],
-  });
+  const isEditing = Boolean(event);
+
+  const buildDefaults = (): Values => {
+    if (event) {
+      const start = parseISO(event.start);
+      const end = parseISO(event.end);
+      return {
+        title: event.title,
+        description: event.description,
+        type: event.type,
+        projectId: event.projectId ?? "none",
+        date: format(start, "yyyy-MM-dd"),
+        allDay: event.allDay,
+        startTime: event.allDay ? "10:00" : format(start, "HH:mm"),
+        endTime: event.allDay ? "23:59" : format(end, "HH:mm"),
+        location: event.location,
+        attendeeIds: event.attendeeIds,
+      };
+    }
+    return {
+      title: "",
+      description: "",
+      type: "meeting",
+      projectId: "none",
+      date: format(defaultDate ?? new Date(), "yyyy-MM-dd"),
+      allDay: false,
+      startTime: "10:00",
+      endTime: "11:00",
+      location: "",
+      attendeeIds: [ds.currentUserId ?? ""],
+    };
+  };
 
   const form = useForm<Values>({
     resolver: zodResolver(schema),
@@ -88,35 +112,59 @@ export function CreateEventDialog({
   useEffect(() => {
     if (open) form.reset(buildDefaults());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultDate]);
+  }, [open, defaultDate, event]);
 
   const allDay = form.watch("allDay");
   const attendeeIds = form.watch("attendeeIds");
 
-  const onSubmit = (values: Values) => {
-    const start = values.allDay
-      ? new Date(`${values.date}T00:00:00`)
-      : new Date(`${values.date}T${values.startTime}:00`);
-    const end = values.allDay
-      ? new Date(`${values.date}T23:59:00`)
-      : new Date(`${values.date}T${values.endTime}:00`);
+  const onSubmit = async (values: Values) => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const start = values.allDay
+        ? new Date(`${values.date}T00:00:00`)
+        : new Date(`${values.date}T${values.startTime}:00`);
+      const end = values.allDay
+        ? new Date(`${values.date}T23:59:00`)
+        : new Date(`${values.date}T${values.endTime}:00`);
 
-    void ds.createEvent({
-      title: values.title,
-      description: values.description,
-      type: values.type,
-      projectId: values.projectId === "none" ? null : values.projectId,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      allDay: values.allDay,
-      attendeeIds: values.attendeeIds,
-      location: values.location,
-    });
-
-    onOpenChange(false);
-    toast.success("Event scheduled", {
-      description: `${values.title} · ${format(start, "d MMM")}`,
-    });
+      if (isEditing && event) {
+        await ds.updateEvent(event.id, {
+          title: values.title,
+          description: values.description,
+          type: values.type,
+          projectId: values.projectId === "none" ? null : values.projectId,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          allDay: values.allDay,
+          attendeeIds: values.attendeeIds,
+          location: values.location,
+        });
+        toast.success("Event updated", {
+          description: `${values.title} · ${format(start, "d MMM")}`,
+        });
+      } else {
+        await ds.createEvent({
+          title: values.title,
+          description: values.description,
+          type: values.type,
+          projectId: values.projectId === "none" ? null : values.projectId,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          allDay: values.allDay,
+          attendeeIds: values.attendeeIds,
+          location: values.location,
+        });
+        toast.success("Event scheduled", {
+          description: `${values.title} · ${format(start, "d MMM")}`,
+        });
+      }
+      onOpenChange(false);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to save event.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const toggleAttendee = (id: string) => {
@@ -133,12 +181,20 @@ export function CreateEventDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <p className="eyebrow mb-1">New event</p>
-          <DialogTitle>Block the time.</DialogTitle>
+          <p className="eyebrow mb-1">{isEditing ? "Edit event" : "New event"}</p>
+          <DialogTitle>{isEditing ? "Modify the time block." : "Block the time."}</DialogTitle>
           <DialogDescription>
-            Meetings, deadlines, milestones and focus blocks share one calendar language.
+            {isEditing
+              ? "Changes are saved to the server."
+              : "Meetings, deadlines, milestones and focus blocks share one calendar language."}
           </DialogDescription>
         </DialogHeader>
+
+        {submitError ? (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-[11px] text-destructive">
+            {submitError}
+          </div>
+        ) : null}
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <FormField label="Title" htmlFor="event-title" error={form.formState.errors.title?.message}>
@@ -256,8 +312,12 @@ export function CreateEventDialog({
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" isLoading={form.formState.isSubmitting}>
-              Schedule event
+            <Button
+              type="submit"
+              isLoading={submitting}
+              disabled={submitting}
+            >
+              {isEditing ? "Update event" : "Schedule event"}
             </Button>
           </DialogFooter>
         </form>

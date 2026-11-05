@@ -45,6 +45,7 @@ export interface DataSource {
   projects: Record<string, any>;
   tasks: Record<string, any>;
   members: Record<string, any>;
+  events: Record<string, any>;
   workspaces: Record<string, any>;
   // Bootstrap / workspace switching
   bootstrap: (workspaceId: string) => Promise<void>;
@@ -58,10 +59,15 @@ export interface DataSource {
   moveTask: (id: string, status: TaskStatus, index?: number) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   addSubtask: (taskId: string, title: string) => Promise<void>;
+  deleteSubtask: (taskId: string, subtaskId: string) => Promise<void>;
   toggleSubtask: (taskId: string, subtaskId: string) => Promise<void>;
   addComment: (taskId: string, authorId: string, body: string) => Promise<void>;
   addAttachment: (taskId: string, input: any) => Promise<void>;
+  deleteAttachment: (taskId: string, attachmentId: string) => Promise<void>;
   createEvent: (input: any) => Promise<any>;
+  listEvents: (workspaceId: string) => Promise<void>;
+  updateEvent: (id: string, patch: any) => Promise<void>;
+  deleteEvent: (id: string) => Promise<void>;
   // Activity
   listActivity: (workspaceId: string, filters?: any) => Promise<any[]>;
   // Selector-compatible getters (take ids, return arrays)
@@ -83,6 +89,7 @@ export function useDataSource(): DataSource {
       projects: ds.projects,
       tasks: ds.tasks,
       members: ds.members,
+      events: ds.events,
       workspaces: ds.workspaces,
       bootstrap: ds.bootstrap,
       createProject: (input: any) => ds.createProject(input),
@@ -94,13 +101,20 @@ export function useDataSource(): DataSource {
         ds.moveTask(id, status, index),
       deleteTask: (id: string) => ds.deleteTask(id),
       addSubtask: (taskId: string, title: string) => ds.addSubtask(taskId, title),
+      deleteSubtask: (taskId: string, subtaskId: string) =>
+        ds.deleteSubtask(taskId, subtaskId),
       toggleSubtask: (taskId: string, subtaskId: string) =>
         ds.toggleSubtask(taskId, subtaskId),
       addComment: (taskId: string, authorId: string, body: string) =>
         ds.addComment(taskId, authorId, body),
       addAttachment: (taskId: string, input: any) =>
         ds.addAttachment(taskId, input),
+      deleteAttachment: (taskId: string, attachmentId: string) =>
+        ds.deleteAttachment(taskId, attachmentId),
       createEvent: (input: any) => ds.createEvent(input),
+      listEvents: (workspaceId: string) => ds.listEvents(workspaceId),
+      updateEvent: (id: string, patch: any) => ds.updateEvent(id, patch),
+      deleteEvent: (id: string) => ds.deleteEvent(id),
       listActivity: (workspaceId: string, filters?: any) =>
         liveListActivity(workspaceId, filters),
       workspaceProjects: (workspaceId) =>
@@ -120,6 +134,7 @@ export function useDataSource(): DataSource {
     projects: state.projects,
     tasks: state.tasks,
     members: state.members,
+    events: state.events,
     workspaces: state.workspaces,
     bootstrap: async () => undefined,
     createProject: async (input: any) => state.createProject(input),
@@ -131,13 +146,20 @@ export function useDataSource(): DataSource {
       state.moveTask(id, status, index),
     deleteTask: async (id: string) => state.deleteTask(id),
     addSubtask: async (taskId: string, title: string) => state.addSubtask(taskId, title),
+    deleteSubtask: async (taskId: string, subtaskId: string) =>
+      state.deleteSubtask(taskId, subtaskId),
     toggleSubtask: async (taskId: string, subtaskId: string) =>
       state.toggleSubtask(taskId, subtaskId),
     addComment: async (taskId: string, authorId: string, body: string) =>
       state.addComment(taskId, authorId, body),
     addAttachment: async (taskId: string, input: any) =>
       state.addAttachment(taskId, input),
+    deleteAttachment: async (taskId: string, attachmentId: string) =>
+      state.deleteAttachment(taskId, attachmentId),
     createEvent: async (input: any) => state.createEvent(input),
+    listEvents: async (_workspaceId: string) => undefined,
+    updateEvent: async (_id: string, _patch: any) => undefined,
+    deleteEvent: async (_id: string) => undefined,
     listActivity: async () => [],
     workspaceProjects: (workspaceId: string) =>
       workspaceProjects(state as any, workspaceId),

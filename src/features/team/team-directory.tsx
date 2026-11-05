@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ClockIcon,
@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatFullDate, PRESENCE_LABEL } from "@/lib/format";
-import { workspaceMembers, workspaceTasks } from "@/lib/selectors";
+import { useDataSource } from "@/lib/use-data-source";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Presence, WorkspaceRole } from "@/types/domain";
@@ -48,19 +48,29 @@ type RoleFilter = WorkspaceRole | "all";
 
 export function TeamDirectory() {
   const state = useWorkspaceStore();
-  const workspace = state.workspaces[state.activeWorkspaceId];
+  const ds = useDataSource();
 
   const [query, setQuery] = useState("");
   const [role, setRole] = useState<RoleFilter>("all");
 
-  const members = workspace ? workspaceMembers(state, workspace.id) : [];
+  const workspaceId = ds.activeWorkspaceId;
+  const workspace = state.workspaces[workspaceId ?? ""];
+
+  const members = ds.workspaceMembers(workspaceId ?? "");
   const openByMember = new Map<string, number>();
-  if (workspace) {
-    for (const task of workspaceTasks(state, workspace.id)) {
-      if (!task.assigneeId || task.status === "done") continue;
-      openByMember.set(task.assigneeId, (openByMember.get(task.assigneeId) ?? 0) + 1);
-    }
+  for (const task of ds.workspaceTasks(workspaceId ?? "")) {
+    if (!task.assigneeId || task.status === "done") continue;
+    openByMember.set(
+      task.assigneeId,
+      (openByMember.get(task.assigneeId) ?? 0) + 1,
+    );
   }
+
+  // Bootstrap members and tasks from the backend when in live mode.
+  useEffect(() => {
+    if (ds.mode !== "live" || !workspaceId) return;
+    void ds.bootstrap(workspaceId);
+  }, [ds.mode, workspaceId, ds.bootstrap]);
 
   const needle = query.trim().toLowerCase();
   const filtered = members.filter((member) => {
@@ -79,7 +89,7 @@ export function TeamDirectory() {
       <PageHeader
         eyebrow="Collaboration"
         title="The people behind the work."
-        description={`Roles, focus and time zones for everyone in ${workspace.name}. Presence is simulated for this demo workspace.`}
+        description={`Roles, focus and time zones for everyone in ${workspace?.name}.`}
         actions={
           <Button variant="outline" asChild>
             <Link href="/settings">
@@ -178,13 +188,13 @@ export function TeamDirectory() {
                         {member.title}
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <Badge variant="outline">{ROLE_LABEL[member.role]}</Badge>
+                        <Badge variant="outline">{ROLE_LABEL[member.role as WorkspaceRole]}</Badge>
                         <span className="flex items-center gap-1.5 rounded-md bg-muted/70 px-1.5 py-0.5 text-[10.5px] text-muted-foreground">
                           <span
                             aria-hidden="true"
-                            className={cn("size-1.5 rounded-full", PRESENCE_DOT[member.presence])}
+                            className={cn("size-1.5 rounded-full", PRESENCE_DOT[member.presence as Presence])}
                           />
-                          {PRESENCE_LABEL[member.presence]}
+                          {PRESENCE_LABEL[member.presence as Presence]}
                         </span>
                       </div>
                       {openByMember.get(member.id) ? (

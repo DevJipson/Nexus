@@ -2,7 +2,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   FolderKanbanIcon,
   FolderPlusIcon,
@@ -76,6 +76,12 @@ export function ProjectsScreen() {
   const workspaceId = ds.activeWorkspaceId;
   const allProjects = ds.workspaceProjects(workspaceId ?? "");
   const members = ds.workspaceMembers(workspaceId ?? "");
+
+  // Bootstrap data from the backend when in live mode.
+  useEffect(() => {
+    if (ds.mode !== "live" || !workspaceId) return;
+    void ds.bootstrap(workspaceId);
+  }, [ds.mode, workspaceId, ds.bootstrap]);
 
   const needle = search.trim().toLowerCase();
   const filtered = allProjects.filter((project) => {

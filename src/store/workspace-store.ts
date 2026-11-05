@@ -117,9 +117,11 @@ interface WorkspaceActions {
   moveTask: (id: ID, status: TaskStatus, index?: number) => void;
   deleteTask: (id: ID) => void;
   addSubtask: (taskId: ID, title: string) => void;
+  deleteSubtask: (taskId: ID, subtaskId: ID) => void;
   toggleSubtask: (taskId: ID, subtaskId: ID) => void;
   addComment: (taskId: ID, authorId: ID, body: string) => void;
   addAttachment: (taskId: ID, input: Omit<Attachment, "id" | "uploadedAt">) => void;
+  deleteAttachment: (taskId: ID, attachmentId: ID) => void;
   createEvent: (input: CreateEventInput) => CalendarEvent;
   updateEvent: (id: ID, patch: EventPatch) => void;
   deleteEvent: (id: ID) => void;
@@ -468,6 +470,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           };
         }),
 
+      deleteSubtask: (taskId, subtaskId) =>
+        set((state) => {
+          const task = state.tasks[taskId];
+          if (!task) return state;
+          return {
+            tasks: {
+              ...state.tasks,
+              [taskId]: {
+                ...task,
+                subtasks: task.subtasks.filter((subtask) => subtask.id !== subtaskId),
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          };
+        }),
+
       toggleSubtask: (taskId, subtaskId) =>
         set((state) => {
           const task = state.tasks[taskId];
@@ -529,6 +547,24 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                   ...task.attachments,
                   { ...input, id: uid("a"), uploadedAt: new Date().toISOString() },
                 ],
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          };
+        }),
+
+      deleteAttachment: (taskId, attachmentId) =>
+        set((state) => {
+          const task = state.tasks[taskId];
+          if (!task) return state;
+          return {
+            tasks: {
+              ...state.tasks,
+              [taskId]: {
+                ...task,
+                attachments: task.attachments.filter(
+                  (a) => a.id !== attachmentId,
+                ),
                 updatedAt: new Date().toISOString(),
               },
             },

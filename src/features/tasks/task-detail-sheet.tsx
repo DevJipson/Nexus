@@ -386,10 +386,12 @@ function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) 
               task={task}
               onToggle={(subtaskId) => void ds.toggleSubtask(task.id, subtaskId)}
               onAdd={(subtaskTitle) => void ds.addSubtask(task.id, subtaskTitle)}
+              onDelete={(subtaskId) => void ds.deleteSubtask(task.id, subtaskId)}
             />
             <TaskAttachments
               attachments={task.attachments}
               onAdd={(input) => void ds.addAttachment(task.id, input)}
+              onDelete={(attachmentId) => void ds.deleteAttachment(task.id, attachmentId)}
             />
             <TaskComments
               task={task}
