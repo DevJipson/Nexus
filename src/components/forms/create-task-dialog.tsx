@@ -28,7 +28,7 @@ import { PRIORITY_META, TASK_LABEL_META, TASK_STATUS_META } from "@/lib/domain-m
 import { workspaceMembers, workspaceProjects } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
 import { useTaskPanelStore } from "@/store/task-panel-store";
-import { useWorkspaceStore } from "@/store/workspace-store";
+import { useDataSource } from "@/lib/use-data-source";
 import type { Priority, TaskLabel, TaskStatus } from "@/types/domain";
 
 const schema = z.object({
@@ -59,11 +59,11 @@ export function CreateTaskDialog({
   defaultProjectId?: string | null;
   defaultStatus?: TaskStatus;
 }) {
-  const state = useWorkspaceStore();
-  const projects = workspaceProjects(state, state.activeWorkspaceId).filter(
+  const ds = useDataSource();
+  const projects = ds.workspaceProjects(ds.activeWorkspaceId ?? "").filter(
     (project) => project.status !== "archived",
   );
-  const members = workspaceMembers(state, state.activeWorkspaceId);
+  const members = ds.workspaceMembers(ds.activeWorkspaceId ?? "");
 
   const buildDefaults = (): Values => {
     const preferred =
@@ -77,7 +77,7 @@ export function CreateTaskDialog({
       description: "",
       status: defaultStatus,
       priority: "medium",
-      assigneeId: state.currentUserId,
+      assigneeId: ds.currentUserId ?? "",
       dueDate: "",
       labels: [],
     };
@@ -95,7 +95,7 @@ export function CreateTaskDialog({
   }, [open, defaultProjectId, defaultStatus]);
 
   const onSubmit = (values: Values) => {
-    const task = state.createTask({
+    void ds.createTask({
       projectId: values.projectId,
       title: values.title,
       description: values.description,
@@ -104,11 +104,11 @@ export function CreateTaskDialog({
       assigneeId: values.assigneeId === "unassigned" ? null : values.assigneeId,
       dueDate: values.dueDate ? new Date(`${values.dueDate}T17:00:00`).toISOString() : null,
       labels: values.labels as TaskLabel[],
+    }).then((task) => {
+      onOpenChange(false);
+      toast.success("Task created", { description: task.title });
+      useTaskPanelStore.getState().open(task.id);
     });
-
-    onOpenChange(false);
-    toast.success("Task created", { description: task.title });
-    useTaskPanelStore.getState().open(task.id);
   };
 
   const selectedLabels = form.watch("labels");

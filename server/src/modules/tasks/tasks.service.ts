@@ -1,11 +1,13 @@
 import type { Pool, PoolClient } from "pg";
 import type { Logger } from "../../lib/logger";
 import { httpError } from "../../lib/errors";
-import type { AttachmentRow, CommentRow, SubtaskRow, TaskRow } from "../../types/rows";
+import type { AttachmentRow, CommentRow, SubtaskRow, TaskRow, NotificationRow } from "../../types/rows";
 import type { TaskStatus } from "../../types/domain";
 import { logActivity } from "../activity/activity.service";
+import { emitters } from "../../sockets/emitters";
 import { createNotification } from "../notifications/notifications.service";
 import { loadTaskChildren, toTaskDto, type TaskChildren } from "../projects/work.serializer";
+import { toNotificationDto } from "../notifications/notifications.serializer";
 import type { TaskDto } from "../../types/api";
 import type { CreateTaskBody, MoveTaskBody, UpdateTaskBody } from "../work/work.schemas";
 import type { ProjectService } from "../projects/projects.service";
@@ -61,6 +63,13 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
   async function dtoForRows(db: Pool | PoolClient, rows: TaskRow[]): Promise<TaskDto[]> {
     const children = await loadTaskChildren(db as PoolClient, rows.map((row) => row.id));
     return rows.map((row) => toTaskDto(row, children.get(row.id) ?? emptyChildren()));
+  }
+
+  /** Fresh, fully-populated DTO for a single task — used for post-commit emits. */
+  async function dtoForId(taskId: string): Promise<TaskDto> {
+    const task = await requireTask(taskId);
+    const children = await loadTaskChildren(pool, [task.id]);
+    return toTaskDto(task, children.get(task.id) ?? emptyChildren());
   }
 
   function emptyChildren(): TaskChildren {
@@ -204,6 +213,7 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
           projectId: task.project_id,
         });
 
+        let assignedNotification: NotificationRow | undefined;
         if (task.assignee_id && task.assignee_id !== actorId) {
           await logActivity(client, {
             workspaceId,
@@ -214,7 +224,7 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
             entityLabel: task.title,
             projectId: task.project_id,
           });
-          await createNotification(client, {
+          assignedNotification = await createNotification(client, {
             workspaceId,
             userId: task.assignee_id,
             category: "task",
@@ -226,7 +236,13 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
 
         await client.query("COMMIT");
         const children = await loadTaskChildren(pool, [task.id]);
-        return toTaskDto(task, children.get(task.id) ?? emptyChildren());
+        const taskDto = toTaskDto(task, children.get(task.id) ?? emptyChildren());
+        emitters.taskCreated(workspaceId, { task: taskDto });
+        emitters.activityCreated(workspaceId, { activity: { kind: "task.created", entityId: task.id, entityLabel: task.title } });
+        if (assignedNotification) {
+          emitters.notificationNew(task.assignee_id!, { notification: toNotificationDto(assignedNotification) });
+        }
+        return taskDto;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
         throw error;
@@ -305,6 +321,7 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
           projectId: task.project_id,
         });
 
+        let reassignedNotification: NotificationRow | undefined;
         const reassigned = "assigneeId" in data && task.assignee_id && task.assignee_id !== existing.assignee_id;
         if (reassigned && task.assignee_id && task.assignee_id !== actorId) {
           await logActivity(client, {
@@ -316,7 +333,7 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
             entityLabel: task.title,
             projectId: task.project_id,
           });
-          await createNotification(client, {
+          reassignedNotification = await createNotification(client, {
             workspaceId: task.workspace_id,
             userId: task.assignee_id,
             category: "task",
@@ -328,7 +345,13 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
 
         await client.query("COMMIT");
         const children = await loadTaskChildren(pool, [task.id]);
-        return toTaskDto(task, children.get(task.id) ?? emptyChildren());
+        const taskDto = toTaskDto(task, children.get(task.id) ?? emptyChildren());
+        emitters.taskUpdated(task.workspace_id, { task: taskDto });
+        emitters.activityCreated(task.workspace_id, { activity: { kind: becameDone ? "task.completed" : "task.updated", entityId: task.id, entityLabel: task.title } });
+        if (reassignedNotification) {
+          emitters.notificationNew(task.assignee_id!, { notification: toNotificationDto(reassignedNotification) });
+        }
+        return taskDto;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
         throw error;
@@ -399,7 +422,10 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
         );
         const columnDtos = await dtoForRows(pool, columnRows.rows);
         const children = await loadTaskChildren(pool, [moved.id]);
-        return { task: toTaskDto(moved, children.get(moved.id) ?? emptyChildren()), column: columnDtos };
+        const taskDto = toTaskDto(moved, children.get(moved.id) ?? emptyChildren());
+        emitters.taskMoved(existing.workspace_id, { task: taskDto, column: columnDtos });
+        emitters.activityCreated(existing.workspace_id, { activity: { kind: becameDone ? "task.completed" : "task.updated", entityId: taskId, entityLabel: existing.title } });
+        return { task: taskDto, column: columnDtos };
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
         throw error;
@@ -410,45 +436,101 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
 
     async deleteTask(input) {
       const task = await requireTask(input.taskId);
-      await pool.query("DELETE FROM tasks WHERE id = $1", [task.id]);
-      logger.info({ taskId: task.id, workspaceId: task.workspace_id }, "task deleted");
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await logActivity(client, {
+          workspaceId: task.workspace_id,
+          actorId: input.actorId,
+          kind: "task.updated",
+          entityType: "task",
+          entityId: task.id,
+          entityLabel: task.title,
+          projectId: task.project_id,
+        });
+        await client.query("DELETE FROM tasks WHERE id = $1", [task.id]);
+        await client.query("COMMIT");
+        logger.info({ taskId: task.id, workspaceId: task.workspace_id }, "task deleted");
+        emitters.taskDeleted(task.workspace_id, { taskId: task.id });
+        emitters.activityCreated(task.workspace_id, { activity: { kind: "task.updated", entityId: task.id, entityLabel: task.title } });
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async addSubtask(input) {
-      const task = await requireTask(input.taskId);
-      const next = await pool.query<{ next: number }>(
-        "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM subtasks WHERE task_id = $1",
-        [task.id],
-      );
-      const result = await pool.query<SubtaskRow>(
-        "INSERT INTO subtasks (task_id, title, sort_order) VALUES ($1, $2, $3) RETURNING *",
-        [task.id, input.title, next.rows[0]?.next ?? 0],
-      );
-      await pool.query("UPDATE tasks SET updated_at = now() WHERE id = $1", [task.id]);
-      const row = result.rows[0];
-      if (!row) throw httpError.internal();
-      return row;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        // Lock the parent task so concurrent subtask inserts serialize their
+        // sort_order computation instead of racing on MAX(sort_order).
+        const taskResult = await client.query<TaskRow>(
+          "SELECT * FROM tasks WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+          [input.taskId],
+        );
+        const task = taskResult.rows[0];
+        if (!task) throw httpError.notFound("Task not found.");
+
+        const next = await client.query<{ next: number }>(
+          "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM subtasks WHERE task_id = $1",
+          [task.id],
+        );
+        const inserted = await client.query<SubtaskRow>(
+          "INSERT INTO subtasks (task_id, title, sort_order) VALUES ($1, $2, $3) RETURNING *",
+          [task.id, input.title, next.rows[0]?.next ?? 0],
+        );
+        await client.query("UPDATE tasks SET updated_at = now() WHERE id = $1", [task.id]);
+        await client.query("COMMIT");
+
+        const row = inserted.rows[0];
+        if (!row) throw httpError.internal();
+        emitters.taskUpdated(task.workspace_id, { task: await dtoForId(task.id) });
+        return row;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async updateSubtask(input) {
-      await requireTask(input.taskId);
-      const result = await pool.query<SubtaskRow>(
-        `UPDATE subtasks
-            SET title = COALESCE($3, title), done = COALESCE($4, done)
-          WHERE id = $2 AND task_id = $1
-        RETURNING *`,
-        [input.taskId, input.subtaskId, input.data.title ?? null, input.data.done ?? null],
-      );
-      const row = result.rows[0];
-      if (!row) throw httpError.notFound("Subtask not found.");
-      await pool.query("UPDATE tasks SET updated_at = now() WHERE id = $1", [input.taskId]);
-      return row;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const task = await client.query("SELECT id FROM tasks WHERE id = $1 AND deleted_at IS NULL", [input.taskId]);
+        if (task.rows.length === 0) throw httpError.notFound("Task not found.");
+        const result = await client.query<SubtaskRow>(
+          `UPDATE subtasks
+              SET title = COALESCE($3, title), done = COALESCE($4, done)
+            WHERE id = $2 AND task_id = $1
+          RETURNING *`,
+          [input.taskId, input.subtaskId, input.data.title ?? null, input.data.done ?? null],
+        );
+        const row = result.rows[0];
+        if (!row) throw httpError.notFound("Subtask not found.");
+        await client.query("UPDATE tasks SET updated_at = now() WHERE id = $1", [input.taskId]);
+        await client.query("COMMIT");
+        const taskDto = await dtoForId(input.taskId);
+        emitters.taskUpdated(taskDto.workspaceId, { task: taskDto });
+        return row;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async deleteSubtask(taskId, subtaskId) {
       await requireTask(taskId);
       const result = await pool.query("DELETE FROM subtasks WHERE id = $1 AND task_id = $2", [subtaskId, taskId]);
       if (result.rowCount === 0) throw httpError.notFound("Subtask not found.");
+      const taskDto = await dtoForId(taskId);
+      emitters.taskUpdated(taskDto.workspaceId, { task: taskDto });
     },
 
     async addComment(input) {
@@ -492,16 +574,32 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
     },
 
     async addAttachment(input) {
-      const task = await requireTask(input.taskId);
-      const result = await pool.query<AttachmentRow>(
-        `INSERT INTO attachments (task_id, uploaded_by, name, size_bytes, mime_type)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [task.id, input.uploaderId, input.name, input.size, input.mimeType],
-      );
-      await pool.query("UPDATE tasks SET updated_at = now() WHERE id = $1", [task.id]);
-      const row = result.rows[0];
-      if (!row) throw httpError.internal();
-      return row;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const taskResult = await client.query<TaskRow>(
+          "SELECT * FROM tasks WHERE id = $1 AND deleted_at IS NULL",
+          [input.taskId],
+        );
+        const task = taskResult.rows[0];
+        if (!task) throw httpError.notFound("Task not found.");
+        const result = await client.query<AttachmentRow>(
+          `INSERT INTO attachments (task_id, uploaded_by, name, size_bytes, mime_type)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [task.id, input.uploaderId, input.name, input.size, input.mimeType],
+        );
+        await client.query("UPDATE tasks SET updated_at = now() WHERE id = $1", [task.id]);
+        await client.query("COMMIT");
+        const row = result.rows[0];
+        if (!row) throw httpError.internal();
+        emitters.taskUpdated(task.workspace_id, { task: await dtoForId(task.id) });
+        return row;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async deleteAttachment(taskId, attachmentId) {
@@ -510,6 +608,8 @@ export function createTaskService(options: { pool: Pool; logger: Logger; project
       // enforced in the controller via membership role.
       const result = await pool.query("DELETE FROM attachments WHERE id = $1 AND task_id = $2", [attachmentId, taskId]);
       if (result.rowCount === 0) throw httpError.notFound("Attachment not found.");
+      const taskDto = await dtoForId(taskId);
+      emitters.taskUpdated(taskDto.workspaceId, { task: taskDto });
     },
   };
 }

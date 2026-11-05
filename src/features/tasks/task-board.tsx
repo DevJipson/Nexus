@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { useState } from "react";
 import { format, isTomorrow, parseISO } from "date-fns";
 import {
@@ -28,9 +30,9 @@ import { PriorityIndicator } from "@/components/shared/status-pill";
 import { isTaskDueToday, isTaskOverdue } from "@/lib/selectors";
 import { TASK_STATUS_META, TASK_STATUS_ORDER, toneVar } from "@/lib/domain-meta";
 import { cn } from "@/lib/utils";
+import { useDataSource } from "@/lib/use-data-source";
 import { useComposeStore } from "@/store/compose-store";
 import { useTaskPanelStore } from "@/store/task-panel-store";
-import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Task, TaskStatus } from "@/types/domain";
 
 export function TaskBoard({
@@ -41,7 +43,8 @@ export function TaskBoard({
   now: Date;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const moveTask = useWorkspaceStore((state) => state.moveTask);
+  const ds = useDataSource();
+  const moveTask = (id: string, status: any, index?: number) => void ds.moveTask(id, status, index);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -204,15 +207,15 @@ function TaskCardContent({
   now,
   overlay = false,
 }: {
-  task: Task;
+  task: any;
   now: Date;
   overlay?: boolean;
 }) {
-  const state = useWorkspaceStore();
+  const ds = useDataSource();
   const openTask = useTaskPanelStore((store) => store.open);
-  const project = state.projects[task.projectId];
-  const assignee = task.assigneeId ? state.members[task.assigneeId] : null;
-  const subtasksDone = task.subtasks.filter((item) => item.done).length;
+  const project = ds.projects[task.projectId];
+  const assignee = task.assigneeId ? ds.members[task.assigneeId] : null;
+  const subtasksDone = task.subtasks.filter((item: any) => item.done).length;
   const overdue = isTaskOverdue(task, now);
   const dueToday = isTaskDueToday(task, now);
 
@@ -302,7 +305,7 @@ function TaskCardContent({
         <Checkbox
           checked={task.status === "done"}
           onCheckedChange={() =>
-            state.updateTask(task.id, {
+            void ds.updateTask(task.id, {
               status: task.status === "done" ? "todo" : "done",
             })
           }

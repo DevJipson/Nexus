@@ -127,6 +127,38 @@ export interface ProjectRow {
   deleted_at: Date | null;
 }
 
+/* ----------------------------- Phase 4 rows ----------------------------- */
+
+export interface ConversationRow {
+  id: string;
+  workspace_id: string;
+  kind: "direct" | "group";
+  name: string | null;
+  project_id: string | null;
+  direct_key: string | null;
+  created_by: string | null;
+  last_message_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ConversationMemberRow {
+  conversation_id: string;
+  user_id: string;
+  last_read_at: Date;
+  joined_at: Date;
+}
+
+export interface MessageRow {
+  id: string;
+  conversation_id: string;
+  author_id: string;
+  body: string;
+  created_at: Date;
+  updated_at: Date;
+  deleted_at: Date | null;
+}
+
 export interface TaskRow {
   id: string;
   workspace_id: string;

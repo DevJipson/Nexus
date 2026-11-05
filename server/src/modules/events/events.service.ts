@@ -4,6 +4,7 @@ import { httpError } from "../../lib/errors";
 import type { CalendarEventRow } from "../../types/rows";
 import type { CalendarEventDto } from "../../types/api";
 import { logActivity } from "../activity/activity.service";
+import { emitters } from "../../sockets/emitters";
 import { toEventDto } from "../projects/work.serializer";
 import type { CreateEventBody, UpdateEventBody } from "../work/work.schemas";
 import type { ProjectService } from "../projects/projects.service";
@@ -18,7 +19,7 @@ export interface EventService {
   requireEvent(eventId: string): Promise<CalendarEventRow>;
   create(input: { workspaceId: string; actorId: string; data: CreateEventBody }): Promise<CalendarEventDto>;
   update(input: { eventId: string; actorId: string; data: UpdateEventBody }): Promise<CalendarEventDto>;
-  remove(eventId: string): Promise<void>;
+  remove(input: { eventId: string; actorId: string }): Promise<void>;
 }
 
 export function createEventService(options: { pool: Pool; logger: Logger; projects: ProjectService }): EventService {
@@ -72,13 +73,14 @@ export function createEventService(options: { pool: Pool; logger: Logger; projec
 
     async create(input) {
       const { workspaceId, actorId, data } = input;
+      const attendeeIds = [...new Set(data.attendeeIds)];
       if (data.projectId) {
         const project = await projects.requireProject(data.projectId);
         if (project.workspace_id !== workspaceId) {
           throw httpError.validation("The project does not belong to this workspace.");
         }
       }
-      await projects.assertMembersInWorkspace(workspaceId, data.attendeeIds);
+      await projects.assertMembersInWorkspace(workspaceId, attendeeIds);
 
       const client = await pool.connect();
       try {
@@ -103,7 +105,7 @@ export function createEventService(options: { pool: Pool; logger: Logger; projec
         const event = result.rows[0];
         if (!event) throw httpError.internal();
 
-        for (const attendeeId of data.attendeeIds) {
+        for (const attendeeId of attendeeIds) {
           await client.query("INSERT INTO event_attendees (event_id, user_id) VALUES ($1, $2)", [event.id, attendeeId]);
         }
 
@@ -118,7 +120,10 @@ export function createEventService(options: { pool: Pool; logger: Logger; projec
         });
 
         await client.query("COMMIT");
-        return toEventDto(event, data.attendeeIds);
+        const dto = toEventDto(event, attendeeIds);
+        emitters.eventCreated(workspaceId, { event: dto });
+        emitters.activityCreated(workspaceId, { activity: { kind: "event.created", entityId: event.id, entityLabel: event.title } });
+        return dto;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
         throw error;
@@ -136,8 +141,9 @@ export function createEventService(options: { pool: Pool; logger: Logger; projec
           throw httpError.validation("The project does not belong to this workspace.");
         }
       }
-      if (data.attendeeIds) {
-        await projects.assertMembersInWorkspace(existing.workspace_id, data.attendeeIds);
+      const attendeeIds = data.attendeeIds ? [...new Set(data.attendeeIds)] : undefined;
+      if (attendeeIds) {
+        await projects.assertMembersInWorkspace(existing.workspace_id, attendeeIds);
       }
 
       const client = await pool.connect();
@@ -178,16 +184,19 @@ export function createEventService(options: { pool: Pool; logger: Logger; projec
         const event = result.rows[0];
         if (!event) throw httpError.notFound("Event not found.");
 
-        if (data.attendeeIds) {
+        if (attendeeIds) {
           await client.query("DELETE FROM event_attendees WHERE event_id = $1", [input.eventId]);
-          for (const attendeeId of data.attendeeIds) {
+          for (const attendeeId of attendeeIds) {
             await client.query("INSERT INTO event_attendees (event_id, user_id) VALUES ($1, $2)", [input.eventId, attendeeId]);
           }
         }
 
         await client.query("COMMIT");
-        const attendees = data.attendeeIds ?? (await attendeeIdsFor(event.id));
-        return toEventDto(event, attendees);
+        const attendees = attendeeIds ?? (await attendeeIdsFor(event.id));
+        const dto = toEventDto(event, attendees);
+        emitters.eventUpdated(existing.workspace_id, { event: dto });
+        emitters.activityCreated(existing.workspace_id, { activity: { kind: "event.created", entityId: event.id, entityLabel: event.title } });
+        return dto;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
         throw error;
@@ -196,9 +205,30 @@ export function createEventService(options: { pool: Pool; logger: Logger; projec
       }
     },
 
-    async remove(eventId) {
-      await requireEvent(eventId);
-      await pool.query("DELETE FROM calendar_events WHERE id = $1", [eventId]);
+    async remove(input) {
+      const existing = await requireEvent(input.eventId);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await logActivity(client, {
+          workspaceId: existing.workspace_id,
+          actorId: input.actorId,
+          kind: "event.created",
+          entityType: "event",
+          entityId: existing.id,
+          entityLabel: existing.title,
+          projectId: existing.project_id,
+        });
+        await client.query("DELETE FROM calendar_events WHERE id = $1", [input.eventId]);
+        await client.query("COMMIT");
+        emitters.eventDeleted(existing.workspace_id, { eventId: input.eventId });
+        emitters.activityCreated(existing.workspace_id, { activity: { kind: "event.created", entityId: input.eventId, entityLabel: existing.title } });
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
   };
 }

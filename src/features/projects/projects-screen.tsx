@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { useState } from "react";
 import {
   FolderKanbanIcon,
@@ -31,15 +33,9 @@ import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { PROJECT_STATUS_META, PRIORITY_META } from "@/lib/domain-meta";
 import { pluralize } from "@/lib/format";
-import {
-  projectStats,
-  sortProjects,
-  workspaceMembers,
-  workspaceProjects,
-} from "@/lib/selectors";
+import { useDataSource, useDataSourceSelectors } from "@/lib/use-data-source";
 import { cn } from "@/lib/utils";
 import { useComposeStore } from "@/store/compose-store";
-import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Priority, ProjectStatus } from "@/types/domain";
 
 type StatusFilter = ProjectStatus | "all";
@@ -66,7 +62,8 @@ const SORT_LABEL: Record<SortKey, string> = {
 };
 
 export function ProjectsScreen() {
-  const state = useWorkspaceStore();
+  const ds = useDataSource();
+  const { sortProjects, projectStats } = useDataSourceSelectors();
   const now = new Date();
   const openComposer = useComposeStore((state) => state.open);
 
@@ -76,8 +73,9 @@ export function ProjectsScreen() {
   const [sort, setSort] = useState<SortKey>("updated");
   const [view, setView] = useState<View>("grid");
 
-  const allProjects = workspaceProjects(state, state.activeWorkspaceId);
-  const members = workspaceMembers(state, state.activeWorkspaceId);
+  const workspaceId = ds.activeWorkspaceId;
+  const allProjects = ds.workspaceProjects(workspaceId ?? "");
+  const members = ds.workspaceMembers(workspaceId ?? "");
 
   const needle = search.trim().toLowerCase();
   const filtered = allProjects.filter((project) => {
@@ -90,13 +88,13 @@ export function ProjectsScreen() {
       .includes(needle);
   });
 
-  const sorted = sortProjects(state, filtered, sort);
+  const sorted = sortProjects(filtered, sort);
   const withStats = sorted.map((project) => ({
     project,
-    stats: projectStats(state, project.id, now),
+    stats: projectStats(project, now),
     members: project.memberIds
-      .map((id) => state.members[id])
-      .filter((member): member is NonNullable<typeof member> => Boolean(member)),
+      .map((id: string) => ds.members[id])
+      .filter((member: any): member is NonNullable<typeof member> => Boolean(member)),
     now,
   }));
 
@@ -132,6 +130,7 @@ export function ProjectsScreen() {
             </span>
           </>
         }
+        className="shrink-0 border-b-0 pb-0 sm:items-center"
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -270,7 +269,7 @@ export function ProjectsScreen() {
       ) : (
         <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-card">
           <table className="w-full border-collapse">
-            <caption className="sr-only">Projects in {state.workspaces[state.activeWorkspaceId]?.name}</caption>
+            <caption className="sr-only">Projects in {ds.workspaces[workspaceId ?? ""]?.name}</caption>
             <thead>
               <tr className="border-b border-border/70 bg-surface/50 text-left">
                 <th scope="col" className="px-4 py-2.5 text-[10px] font-mono tracking-[0.12em] text-muted-foreground uppercase">
@@ -295,7 +294,7 @@ export function ProjectsScreen() {
             </thead>
             <tbody>
               {withStats.map(({ project, stats, members: projectMembers }) => {
-                const meta = PROJECT_STATUS_META[project.status];
+                const meta = PROJECT_STATUS_META[project.status as ProjectStatus];
                 return (
                   <tr
                     key={project.id}

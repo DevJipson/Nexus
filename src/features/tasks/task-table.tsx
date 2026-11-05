@@ -18,8 +18,8 @@ import {
 } from "@/lib/domain-meta";
 import { isTaskOverdue } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
+import { useDataSource } from "@/lib/use-data-source";
 import { useTaskPanelStore } from "@/store/task-panel-store";
-import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Member, Task } from "@/types/domain";
 
 export function TaskTable({
@@ -31,7 +31,7 @@ export function TaskTable({
   members: Member[];
   now: Date;
 }) {
-  const state = useWorkspaceStore();
+  const ds = useDataSource();
   const openTask = useTaskPanelStore((store) => store.open);
 
   if (tasks.length === 0) return null;
@@ -64,8 +64,8 @@ export function TaskTable({
         </thead>
         <tbody>
           {tasks.map((task) => {
-            const project = state.projects[task.projectId];
-            const assignee = task.assigneeId ? state.members[task.assigneeId] ?? null : null;
+            const project = ds.projects[task.projectId];
+            const assignee = task.assigneeId ? ds.members[task.assigneeId] ?? null : null;
             const overdue = isTaskOverdue(task, now);
             const done = task.status === "done";
 
@@ -78,7 +78,7 @@ export function TaskTable({
                   <Checkbox
                     checked={done}
                     onCheckedChange={() =>
-                      state.updateTask(task.id, { status: done ? "todo" : "done" })
+                      void ds.updateTask(task.id, { status: done ? "todo" : "done" })
                     }
                     aria-label={done ? `Reopen ${task.title}` : `Complete ${task.title}`}
                   />
@@ -120,7 +120,7 @@ export function TaskTable({
                   <Select
                     value={task.status}
                     onValueChange={(value) =>
-                      state.updateTask(task.id, { status: value as Task["status"] })
+                      void ds.updateTask(task.id, { status: value as Task["status"] })
                     }
                   >
                     <SelectTrigger
@@ -146,7 +146,7 @@ export function TaskTable({
                   <Select
                     value={task.priority}
                     onValueChange={(value) =>
-                      state.updateTask(task.id, { priority: value as Task["priority"] })
+                      void ds.updateTask(task.id, { priority: value as Task["priority"] })
                     }
                   >
                     <SelectTrigger
@@ -169,7 +169,7 @@ export function TaskTable({
                   <Select
                     value={task.assigneeId ?? "unassigned"}
                     onValueChange={(value) =>
-                      state.updateTask(task.id, {
+                      void ds.updateTask(task.id, {
                         assigneeId: value === "unassigned" ? null : value,
                       })
                     }

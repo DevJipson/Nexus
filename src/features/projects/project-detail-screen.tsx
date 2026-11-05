@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
@@ -51,16 +53,12 @@ import {
   TASK_STATUS_ORDER,
 } from "@/lib/domain-meta";
 import { formatFullDate, relativeTime } from "@/lib/format";
-import {
-  projectTasks,
-  sortTasksForBoard,
-  taskStats,
-  workspaceActivity,
-} from "@/lib/selectors";
+import { sortTasksForBoard, taskStats } from "@/lib/selectors";
+import { liveListActivity } from "@/lib/live-work";
+import { useDataSource, useDataSourceSelectors } from "@/lib/use-data-source";
 import { cn } from "@/lib/utils";
 import { useComposeStore } from "@/store/compose-store";
 import { useTaskPanelStore } from "@/store/task-panel-store";
-import { useWorkspaceStore } from "@/store/workspace-store";
 import type {
   ActivityEntry,
   Priority,
@@ -83,13 +81,37 @@ const ACTIVITY_VERB: Record<ActivityEntry["kind"], string> = {
 
 export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const router = useRouter();
-  const state = useWorkspaceStore();
-  const openComposer = useComposeStore((store) => store.open);
+  const ds = useDataSource();
+  const { sortTasksForBoard, taskStats: computeTaskStats } = useDataSourceSelectors();
+  const openComposer = useComposeStore((state) => state.open);
   const openTask = useTaskPanelStore((store) => store.open);
   const [taskFilter, setTaskFilter] = useState<TaskStatus | "all">("all");
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
 
   const now = new Date();
-  const project = state.projects[projectId];
+  const project = ds.projects[projectId];
+
+  const shouldLoadActivity = ds.mode === "live" && !!project?.workspaceId;
+  const [activityLoading, setActivityLoading] = useState(shouldLoadActivity);
+
+  // Load activity for this project (live mode only).
+  useEffect(() => {
+    if (!project || ds.mode !== "live" || !project.workspaceId) return;
+    void liveListActivity(project.workspaceId, { projectId, limit: 50 }).then(
+      (entries) => {
+        setActivity(
+          entries.filter(
+            (e) => e.projectId === project.id || e.entityId === project.id,
+          ),
+        );
+        setActivityLoading(false);
+      },
+      () => {
+        setActivity([]);
+        setActivityLoading(false);
+      },
+    );
+  }, [project, ds.mode, projectId]);
 
   if (!project) {
     return (
@@ -114,8 +136,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     );
   }
 
-  const stats = taskStats(projectTasks(state, project.id), now);
-  const allTasks = sortTasksForBoard(projectTasks(state, project.id));
+  const allTasks = sortTasksForBoard(ds.projectTasks(project.id));
   const visibleTasks =
     taskFilter === "all"
       ? [...allTasks].sort((a, b) => {
@@ -127,8 +148,8 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       : allTasks.filter((task) => task.status === taskFilter);
 
   const members = project.memberIds
-    .map((id) => state.members[id])
-    .filter((member): member is NonNullable<typeof member> => Boolean(member));
+    .map((id: string) => ds.members[id])
+    .filter((member: any): member is NonNullable<typeof member> => Boolean(member));
 
   const openByMember = new Map<string, number>();
   for (const task of allTasks) {
@@ -136,11 +157,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     openByMember.set(task.assigneeId, (openByMember.get(task.assigneeId) ?? 0) + 1);
   }
 
-  const activity = workspaceActivity(state, project.workspaceId)
-    .filter((entry) => entry.projectId === project.id || entry.entityId === project.id)
-    .slice(0, 8);
+  const stats = computeTaskStats(project, now);
 
-  const meta = PROJECT_STATUS_META[project.status];
+  const meta = PROJECT_STATUS_META[project.status as ProjectStatus];
   const due = parseISO(project.dueDate);
   const overdue = project.status !== "completed" && due.getTime() < now.getTime();
   const counts: Record<TaskStatus, number> = {
@@ -152,14 +171,17 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   };
   for (const task of allTasks) counts[task.status] += 1;
 
-  const activateStatus = (status: ProjectStatus) =>
-    state.updateProject(project.id, { status });
-  const setPriority = (priority: Priority) =>
-    state.updateProject(project.id, { priority });
-  const setDueDate = (value: string) =>
-    state.updateProject(project.id, {
+  const activateStatus = (status: ProjectStatus) => {
+    void ds.updateProject(project.id, { status });
+  };
+  const setPriority = (priority: Priority) => {
+    void ds.updateProject(project.id, { priority });
+  };
+  const setDueDate = (value: string) => {
+    void ds.updateProject(project.id, {
       dueDate: value ? new Date(`${value}T17:00:00`).toISOString() : project.dueDate,
     });
+  };
 
   return (
     <div className="space-y-7">
@@ -285,11 +307,11 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                     key={task.id}
                     task={task}
                     project={project}
-                    assignee={task.assigneeId ? state.members[task.assigneeId] ?? null : null}
+                    assignee={task.assigneeId ? ds.members[task.assigneeId] ?? null : null}
                     now={now}
                     onOpen={() => openTask(task.id)}
                     onToggle={() =>
-                      state.updateTask(task.id, {
+                      void ds.updateTask(task.id, {
                         status: task.status === "done" ? "todo" : "done",
                       })
                     }
@@ -370,7 +392,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 </p>
               ) : (
                 <ul className="divide-y divide-border/50">
-                  {members.map((member) => (
+                  {members.map((member: any) => (
                     <li key={member.id} className="flex items-center gap-2.5 py-2.5">
                       <EntityAvatar
                         name={member.name}
@@ -398,14 +420,16 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
               <CardTitle>What changed</CardTitle>
             </CardHeader>
             <CardContent className="pt-2 pb-2">
-              {activity.length === 0 ? (
+              {activityLoading ? (
+                <p className="py-5 text-center text-[12px] text-muted-foreground">Loading activity…</p>
+              ) : activity.length === 0 ? (
                 <p className="py-5 text-center text-[12px] text-muted-foreground">
                   No activity recorded for this project yet.
                 </p>
               ) : (
                 <ul className="space-y-2.5 pt-1">
                   {activity.map((entry) => {
-                    const actor = state.members[entry.actorId];
+                    const actor = ds.members[entry.actorId];
                     return (
                       <li key={entry.id} className="flex items-start gap-2.5">
                         <EntityAvatar
@@ -462,7 +486,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 <AlertDialogCancel>Keep project</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => {
-                    state.deleteProject(project.id);
+                    void ds.deleteProject(project.id);
                     router.push("/projects");
                   }}
                 >

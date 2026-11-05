@@ -48,7 +48,8 @@ export function createEventController(deps: EventControllerDeps) {
     async remove(req: Request, res: Response): Promise<void> {
       const { eventId } = paramsOf<{ eventId: string }>(res);
       await assertEventAccess(req, eventId);
-      await events.remove(eventId);
+      const { user } = currentAuth(req);
+      await events.remove({ eventId, actorId: user.id });
       sendData(res, 200, { ok: true });
     },
   };

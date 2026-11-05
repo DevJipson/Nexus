@@ -73,6 +73,37 @@ export interface PaginationMeta {
   total: number;
 }
 
+/* ------------------------- Phase 4: messaging DTOs ------------------------ */
+
+export interface MessageDto {
+  id: string;
+  conversationId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MessagePreviewDto {
+  id: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface ConversationDto {
+  id: string;
+  workspaceId: string;
+  kind: "direct" | "group";
+  name: string | null;
+  participantIds: string[];
+  projectId: string | null;
+  lastMessage: MessagePreviewDto | null;
+  unread: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ----------------------------- Phase 3: work ----------------------------- */
 
 export interface ProjectDto {

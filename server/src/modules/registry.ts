@@ -11,6 +11,7 @@ import { createProjectService, type ProjectService } from "./projects/projects.s
 import { createTaskService, type TaskService } from "./tasks/tasks.service";
 import { createEventService, type EventService } from "./events/events.service";
 import { createFeedService, type FeedService } from "./notifications/feeds.service";
+import { createConversationService, type ConversationService } from "./conversations/conversations.service";
 
 /**
  * Composition root. Instantiates every service exactly once and shares them so
@@ -27,6 +28,7 @@ export interface Services {
   tasks: TaskService;
   events: EventService;
   feeds: FeedService;
+  conversations: ConversationService;
   pool: Pool;
 }
 
@@ -36,17 +38,17 @@ export function createServices(input: {
   logger: Logger;
   email: EmailTransport;
 }): Services {
-  const { pool, env, logger, email } = input;
+  const { pool: inputPool, env, logger, email } = input;
+  const sessions = createSessionService({ pool: inputPool, logger });
+  const workspaces = createWorkspaceService({ pool: inputPool, logger });
+  const users = createUserService({ pool: inputPool, logger });
+  const auth = createAuthService({ pool: inputPool, env, logger, sessions, email });
+  const invitations = createInvitationService({ pool: inputPool, env, logger, email, workspaces });
+  const projects = createProjectService({ pool: inputPool, logger });
+  const tasks = createTaskService({ pool: inputPool, logger, projects });
+  const events = createEventService({ pool: inputPool, logger, projects });
+  const feeds = createFeedService({ pool: inputPool });
+  const conversations = createConversationService({ pool: inputPool, workspaces });
 
-  const sessions = createSessionService({ pool, logger });
-  const workspaces = createWorkspaceService({ pool, logger });
-  const users = createUserService({ pool, logger });
-  const auth = createAuthService({ pool, env, logger, sessions, email });
-  const invitations = createInvitationService({ pool, env, logger, email, workspaces });
-  const projects = createProjectService({ pool, logger });
-  const tasks = createTaskService({ pool, logger, projects });
-  const events = createEventService({ pool, logger, projects });
-  const feeds = createFeedService({ pool });
-
-  return { sessions, auth, workspaces, users, invitations, projects, tasks, events, feeds, pool };
+  return { sessions, auth, workspaces, users, invitations, projects, tasks, events, feeds, conversations, pool: inputPool };
 }

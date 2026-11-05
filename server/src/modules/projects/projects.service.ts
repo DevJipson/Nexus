@@ -4,8 +4,9 @@ import { httpError } from "../../lib/errors";
 import type { ProjectRow, TaskRow, LabelRow } from "../../types/rows";
 import type { TaskStatsDto, LabelDto } from "../../types/api";
 import { logActivity } from "../activity/activity.service";
+import { emitters } from "../../sockets/emitters";
 import { allocateProjectKey } from "./project-key";
-import { toLabelDto } from "./work.serializer";
+import { toLabelDto, toProjectDto } from "./work.serializer";
 import type { CreateProjectBody, UpdateProjectBody } from "../work/work.schemas";
 
 /**
@@ -25,7 +26,7 @@ export interface ProjectService {
   requireProject(projectId: string): Promise<ProjectRow>;
   createProject(input: { workspaceId: string; actorId: string; data: CreateProjectBody }): Promise<ProjectRow>;
   updateProject(input: { projectId: string; actorId: string; data: UpdateProjectBody }): Promise<ProjectRow>;
-  deleteProject(projectId: string): Promise<void>;
+  deleteProject(input: { projectId: string; actorId: string }): Promise<void>;
   memberIds(projectId: string): Promise<string[]>;
   taskStats(projectId: string): Promise<TaskStatsDto>;
   assertMembersInWorkspace(workspaceId: string, memberIds: string[]): Promise<void>;
@@ -209,6 +210,9 @@ export function createProjectService(options: { pool: Pool; logger: Logger }): P
 
         await client.query("COMMIT");
         logger.info({ projectId: project.id, workspaceId }, "project created");
+        const memberIds = await memberIdsFor(project.id);
+        emitters.projectCreated(workspaceId, { project: toProjectDto(project, memberIds) });
+        emitters.activityCreated(workspaceId, { activity: { kind: "project.created", entityId: project.id, entityLabel: project.name } });
         return project;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
@@ -271,6 +275,9 @@ export function createProjectService(options: { pool: Pool; logger: Logger }): P
         });
 
         await client.query("COMMIT");
+        const memberIds = await memberIdsFor(project.id);
+        emitters.projectUpdated(project.workspace_id, { project: toProjectDto(project, memberIds) });
+        emitters.activityCreated(project.workspace_id, { activity: { kind, entityId: project.id, entityLabel: project.name } });
         return project;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
@@ -280,15 +287,26 @@ export function createProjectService(options: { pool: Pool; logger: Logger }): P
       }
     },
 
-    async deleteProject(projectId) {
-      const project = await requireProject(projectId);
+    async deleteProject(input) {
+      const project = await requireProject(input.projectId);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        await logActivity(client, {
+          workspaceId: project.workspace_id,
+          actorId: input.actorId,
+          kind: "project.updated",
+          entityType: "project",
+          entityId: project.id,
+          entityLabel: project.name,
+          projectId: project.id,
+        });
         // Tasks cascade; events/conversations/activities detach via SET NULL.
-        await client.query("DELETE FROM projects WHERE id = $1", [projectId]);
+        await client.query("DELETE FROM projects WHERE id = $1", [input.projectId]);
         await client.query("COMMIT");
-        logger.info({ projectId, workspaceId: project.workspace_id }, "project deleted");
+        logger.info({ projectId: input.projectId, workspaceId: project.workspace_id }, "project deleted");
+        emitters.projectDeleted(project.workspace_id, { projectId: input.projectId });
+        emitters.activityCreated(project.workspace_id, { activity: { kind: "project.updated", entityId: input.projectId, entityLabel: project.name } });
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
         throw error;

@@ -28,8 +28,7 @@ import {
 import { FormField } from "@/components/forms/form-field";
 import { MemberPicker } from "@/components/forms/member-picker";
 import { EVENT_TYPE_META } from "@/lib/domain-meta";
-import { workspaceMembers, workspaceProjects } from "@/lib/selectors";
-import { useWorkspaceStore } from "@/store/workspace-store";
+import { useDataSource } from "@/lib/use-data-source";
 import type { CalendarEventType } from "@/types/domain";
 
 const EVENT_TYPES: CalendarEventType[] = ["meeting", "deadline", "milestone", "focus"];
@@ -63,9 +62,9 @@ export function CreateEventDialog({
   onOpenChange: (open: boolean) => void;
   defaultDate?: Date;
 }) {
-  const state = useWorkspaceStore();
-  const members = workspaceMembers(state, state.activeWorkspaceId);
-  const projects = workspaceProjects(state, state.activeWorkspaceId);
+  const ds = useDataSource();
+  const members = ds.workspaceMembers(ds.activeWorkspaceId ?? "");
+  const projects = ds.workspaceProjects(ds.activeWorkspaceId ?? "");
 
   const buildDefaults = (): Values => ({
     title: "",
@@ -77,7 +76,7 @@ export function CreateEventDialog({
     startTime: "10:00",
     endTime: "11:00",
     location: "",
-    attendeeIds: [state.currentUserId],
+    attendeeIds: [ds.currentUserId ?? ""],
   });
 
   const form = useForm<Values>({
@@ -102,7 +101,7 @@ export function CreateEventDialog({
       ? new Date(`${values.date}T23:59:00`)
       : new Date(`${values.date}T${values.endTime}:00`);
 
-    state.createEvent({
+    void ds.createEvent({
       title: values.title,
       description: values.description,
       type: values.type,

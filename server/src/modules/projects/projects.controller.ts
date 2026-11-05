@@ -77,7 +77,7 @@ export function createProjectController(deps: ProjectControllerDeps) {
       const project = await requireProjectAccess(req, projectId);
       const { user } = currentAuth(req);
       await workspaces.requireRole(project.workspace_id, user.id, "admin");
-      await projects.deleteProject(projectId);
+      await projects.deleteProject({ projectId, actorId: user.id });
       sendData(res, 200, { ok: true });
     },
 

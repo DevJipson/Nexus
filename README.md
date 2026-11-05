@@ -3,6 +3,8 @@
 A premium, project-management workspace UI built with Next.js — projects, tasks, a drag-and-drop board, calendar, team, messages, reports and settings — rendered with an editorial "Quiet Instrument" design language: warm neutrals, one cobalt signal, and status-only colour.
 
 > **Local demo.** NEXUS is a frontend-only application. Every record is seeded, every interaction is real, and all state persists to `localStorage` in your browser. Nothing leaves your device, and there is no backend, authentication or email delivery.
+>
+> **Live mode (Phase 4).** Set `NEXT_PUBLIC_NEXUS_API_URL` (e.g. `http://localhost:4000`) and the Messages module moves onto the NEXUS backend (`server/`): threads, unread receipts, presence and typing sync over Socket.IO, signed-in against a seeded demo account. Everything else stays local until later phases. See `.env.example` — without the flag, the app is unchanged.
 
 ## Modules
 
@@ -69,7 +71,7 @@ State lives in two versioned localStorage keys (`nexus:data:v1`, `nexus:ui:v2`).
 
 ## Honest limitations
 
-- No backend, no auth, no multi-user sync, no email. Presence is simulated.
+- Local mode has no backend: presence is simulated and data lives in `localStorage`. Enable Live mode (see above) for real messaging against `server/`; other modules stay local until later phases.
 - Notification preference toggles persist locally but do not send anything.
 - "Reduce motion" and "week starts on" are fully functional; the local environment has no server authority to enforce anything beyond this browser.
 - Attachment UI accepts metadata only (name/size) — no file upload path exists.

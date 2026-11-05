@@ -28,8 +28,7 @@ import {
 import { FormField } from "@/components/forms/form-field";
 import { MemberPicker } from "@/components/forms/member-picker";
 import { PROJECT_STATUS_META, PRIORITY_META } from "@/lib/domain-meta";
-import { workspaceMembers } from "@/lib/selectors";
-import { useWorkspaceStore } from "@/store/workspace-store";
+import { useDataSource } from "@/lib/use-data-source";
 import type { Priority, ProjectStatus } from "@/types/domain";
 
 const schema = z.object({
@@ -61,8 +60,8 @@ export function CreateProjectDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const state = useWorkspaceStore();
-  const members = workspaceMembers(state, state.activeWorkspaceId);
+  const ds = useDataSource();
+  const members = ds.workspaceMembers(ds.activeWorkspaceId ?? "");
 
   const defaults: Values = {
     name: "",
@@ -70,7 +69,7 @@ export function CreateProjectDialog({
     status: "planning",
     priority: "medium",
     dueDate: format(addDays(new Date(), 30), "yyyy-MM-dd"),
-    memberIds: [state.currentUserId],
+    memberIds: [ds.currentUserId ?? ""],
   };
 
   const form = useForm<Values>({
@@ -85,18 +84,18 @@ export function CreateProjectDialog({
   }, [open]);
 
   const onSubmit = (values: Values) => {
-    const project = state.createProject({
+    void ds.createProject({
       name: values.name,
       description: values.description,
       status: values.status,
       priority: values.priority,
       dueDate: new Date(`${values.dueDate}T17:00:00`).toISOString(),
       memberIds: values.memberIds,
+    }).then((project) => {
+      onOpenChange(false);
+      toast.success("Project created", { description: project.name });
+      router.push(`/projects/${project.id}`);
     });
-
-    onOpenChange(false);
-    toast.success("Project created", { description: project.name });
-    router.push(`/projects/${project.id}`);
   };
 
   const toggleMember = (id: string) => {

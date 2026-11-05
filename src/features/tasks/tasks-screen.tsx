@@ -41,6 +41,7 @@ import {
   workspaceProjects,
   workspaceTasks,
 } from "@/lib/selectors";
+import { useDataSource, useDataSourceSelectors } from "@/lib/use-data-source";
 import { useComposeStore } from "@/store/compose-store";
 import { useTaskPanelStore } from "@/store/task-panel-store";
 import { useWorkspaceStore } from "@/store/workspace-store";
@@ -55,6 +56,8 @@ const DEFAULT_FILTERS: TaskFilters = {
 };
 
 export function TasksScreen() {
+  const ds = useDataSource();
+  const { filterTasks, groupTasksByStatus, rankTasks: computeRankTasks } = useDataSourceSelectors();
   const state = useWorkspaceStore();
   const openComposer = useComposeStore((store) => store.open);
   const openTask = useTaskPanelStore((store) => store.open);
@@ -63,10 +66,10 @@ export function TasksScreen() {
   const [filters, setFilters] = useState<TaskFilters>(DEFAULT_FILTERS);
 
   const now = new Date();
-  const workspaceId = state.activeWorkspaceId;
-  const members = workspaceMembers(state, workspaceId);
-  const projects = workspaceProjects(state, workspaceId);
-  const tasks = workspaceTasks(state, workspaceId);
+  const workspaceId = ds.activeWorkspaceId;
+  const members = ds.workspaceMembers(workspaceId ?? "");
+  const projects = ds.workspaceProjects(workspaceId ?? "");
+  const tasks = ds.workspaceTasks(workspaceId ?? "");
 
   const mineOnly = filters.assigneeId === state.currentUserId;
   const filtered = filterTasks(tasks, filters);
@@ -78,7 +81,7 @@ export function TasksScreen() {
     filters.label !== "all";
 
   const grouped = groupTasksByStatus(filtered);
-  const ranked = rankTasks(filtered, now);
+  const ranked = computeRankTasks(filtered, now);
 
   const setFilter = <Key extends keyof TaskFilters>(key: Key, value: TaskFilters[Key]) =>
     setFilters((current) => ({ ...current, [key]: value }));
@@ -268,12 +271,12 @@ export function TasksScreen() {
                 <TaskRow
                   key={task.id}
                   task={task}
-                  project={state.projects[task.projectId] ?? null}
-                  assignee={task.assigneeId ? state.members[task.assigneeId] ?? null : null}
+                  project={ds.projects[task.projectId] ?? null}
+                  assignee={task.assigneeId ? ds.members[task.assigneeId] ?? null : null}
                   now={now}
                   onOpen={() => openTask(task.id)}
                   onToggle={() =>
-                    state.updateTask(task.id, {
+                    void ds.updateTask(task.id, {
                       status: task.status === "done" ? "todo" : "done",
                     })
                   }

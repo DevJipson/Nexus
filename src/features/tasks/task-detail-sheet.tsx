@@ -33,6 +33,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { EntityAvatar } from "@/components/shared/entity-avatar";
@@ -50,6 +51,7 @@ import {
 } from "@/lib/domain-meta";
 import { formatFullDate, relativeTime } from "@/lib/format";
 import { workspaceMembers } from "@/lib/selectors";
+import { useDataSource } from "@/lib/use-data-source";
 import { cn } from "@/lib/utils";
 import { useTaskPanelStore } from "@/store/task-panel-store";
 import { useWorkspaceStore } from "@/store/workspace-store";
@@ -63,6 +65,8 @@ import type { Member, Priority, Task, TaskLabel, TaskStatus } from "@/types/doma
 export function TaskDetailSheet() {
   const taskId = useTaskPanelStore((state) => state.taskId);
   const close = useTaskPanelStore((state) => state.close);
+  const ds = useDataSource();
+  const state = useWorkspaceStore();
   const task = useWorkspaceStore((state) => (taskId ? state.tasks[taskId] : undefined));
 
   return (
@@ -78,11 +82,12 @@ export function TaskDetailSheet() {
 }
 
 function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) {
+  const ds = useDataSource();
   const state = useWorkspaceStore();
-  const project = state.projects[task.projectId];
-  const members = workspaceMembers(state, state.activeWorkspaceId);
-  const currentUser = state.members[state.currentUserId] ?? null;
-  const membersById = state.members;
+  const project = ds.projects[task.projectId];
+  const members = ds.workspaceMembers(ds.activeWorkspaceId ?? "");
+  const currentUser = ds.members[ds.currentUserId ?? ""] ?? null;
+  const membersById = ds.members;
 
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
@@ -94,30 +99,28 @@ function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) 
       setTitle(task.title);
       return;
     }
-    if (next !== task.title) state.updateTask(task.id, { title: next });
+    if (next !== task.title) void ds.updateTask(task.id, { title: next });
   };
 
   const commitDescription = () => {
-    if (description !== task.description) {
-      state.updateTask(task.id, { description });
-    }
+    if (description !== task.description) void ds.updateTask(task.id, { description });
   };
 
   const toggleLabel = (label: TaskLabel) => {
     const next = task.labels.includes(label)
       ? task.labels.filter((item) => item !== label)
       : [...task.labels, label];
-    state.updateTask(task.id, { labels: next });
+    void ds.updateTask(task.id, { labels: next });
   };
 
   const setDueDate = (value: string) => {
-    state.updateTask(task.id, {
+    void ds.updateTask(task.id, {
       dueDate: value ? new Date(`${value}T17:00:00`).toISOString() : null,
     });
   };
 
   const remove = () => {
-    state.deleteTask(task.id);
+    void ds.deleteTask(task.id);
     onClose();
   };
 
@@ -188,7 +191,7 @@ function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) 
               <Select
                 value={task.status}
                 onValueChange={(value) =>
-                  state.updateTask(task.id, { status: value as TaskStatus })
+                  void ds.updateTask(task.id, { status: value as TaskStatus })
                 }
               >
                 <SelectTrigger
@@ -215,7 +218,7 @@ function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) 
               <Select
                 value={task.priority}
                 onValueChange={(value) =>
-                  state.updateTask(task.id, { priority: value as Priority })
+                  void ds.updateTask(task.id, { priority: value as Priority })
                 }
               >
                 <SelectTrigger
@@ -239,7 +242,7 @@ function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) 
               <Select
                 value={task.assigneeId ?? "unassigned"}
                 onValueChange={(value) =>
-                  state.updateTask(task.id, {
+                  void ds.updateTask(task.id, {
                     assigneeId: value === "unassigned" ? null : value,
                   })
                 }
@@ -306,7 +309,9 @@ function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) 
                       <span
                         aria-hidden="true"
                         className="size-1.5 rounded-full"
-                        style={{ backgroundColor: `oklch(0.62 0.13 ${TASK_LABEL_META[label].hue})` }}
+                        style={{
+                          backgroundColor: `oklch(0.62 0.13 ${TASK_LABEL_META[label].hue})`,
+                        }}
                       />
                       {TASK_LABEL_META[label].label}
                     </span>
@@ -379,18 +384,18 @@ function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) 
           <div className="mt-6 space-y-6">
             <TaskSubtasks
               task={task}
-              onToggle={(subtaskId) => state.toggleSubtask(task.id, subtaskId)}
-              onAdd={(subtaskTitle) => state.addSubtask(task.id, subtaskTitle)}
+              onToggle={(subtaskId) => void ds.toggleSubtask(task.id, subtaskId)}
+              onAdd={(subtaskTitle) => void ds.addSubtask(task.id, subtaskTitle)}
             />
             <TaskAttachments
               attachments={task.attachments}
-              onAdd={(input) => state.addAttachment(task.id, input)}
+              onAdd={(input) => void ds.addAttachment(task.id, input)}
             />
             <TaskComments
               task={task}
               membersById={membersById}
               currentUser={currentUser}
-              onSend={(body) => state.addComment(task.id, state.currentUserId, body)}
+              onSend={(body) => void ds.addComment(task.id, state.currentUserId, body)}
             />
           </div>
         </div>
@@ -428,7 +433,7 @@ function TaskDetailBody({ task, onClose }: { task: Task; onClose: () => void }) 
             size="sm"
             variant={isDone ? "outline" : "default"}
             onClick={() =>
-              state.updateTask(task.id, { status: isDone ? "in_progress" : "done" })
+              void ds.updateTask(task.id, { status: isDone ? "in_progress" : "done" })
             }
           >
             {isDone ? "Reopen task" : "Mark as done"}
